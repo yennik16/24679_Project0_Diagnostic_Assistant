@@ -8,17 +8,38 @@ tool would use to verify each test step, pulled from the community
 
 ## What it does
 
+- **Vehicle selection, in the app** - on load (or via "Change Vehicle"),
+  enter a make/model/year and the app fetches that vehicle's live-PID
+  data directly from OBDb using the browser's own `fetch()` - no need to
+  regenerate the file for a different vehicle. This requires the page to
+  be hosted over http/https (e.g. GitHub Pages); if opened as a local
+  file, browsers block that fetch, so the app says so and continues
+  without live PID data - trouble code lookup and the decision tree still
+  work fully offline either way.
 - **Trouble code lookup** - enter a code (e.g. `P0300`) and get its
   description and likely causes from a local database.
 - **Symptom-driven diagnosis** - describe a problem in your own words
-  ("car stumbles and hesitates") and it routes you into a branching
-  sequence of concrete tests. Each answer narrows things down until it
-  reaches a specific root cause and fix - not just a list of possibilities.
-- **Live PID reference** - for the vehicle the app was generated for, it
-  shows the actual OBD-II command and decoding formula for relevant
-  sensors, matched automatically against the test steps in the decision
-  tree, so a step like "check fuel pressure" can point at the real PID a
-  scan tool would query.
+  ("car stumbles and hesitates") and it routes you into a multi-level
+  sequence of concrete tests (several branches go 4-5 questions deep).
+  Each answer narrows things down until it reaches a specific root cause
+  and fix - not just a list of possibilities. Covers engine starting
+  issues, four performance-issue categories, brakes, steering, and
+  electrical faults.
+- **Live PID reference** - shows the actual OBD-II command and decoding
+  formula for the loaded vehicle's sensors, matched automatically against
+  test steps in the decision tree (e.g. a "Battery Voltage" test step
+  shows the exact PID a scan tool would query). The matching is a simple
+  word-overlap heuristic, so it's occasionally imprecise - see "Known
+  limitations" below.
+
+## Known limitations
+
+- PID-to-test matching is word-overlap based, not semantic - it can
+  produce a loose match when two unrelated checks share a generic word
+  (e.g. "Coolant Level" vs. "Fuel Level" both contain "Level").
+- The decision tree and trouble-code database are hand-authored rules,
+  not a learned model - see the AI tool use note below for a discussion
+  of adding real classification/optimization.
 
 ## How it's organized
 
@@ -55,13 +76,16 @@ and open `index.html` directly in a browser. Note: some file previewers
 execute JavaScript and will appear to load forever - make sure you're
 opening it in an actual browser window, not a preview pane.
 
-**Regenerate it for a different vehicle:**
+**Regenerate `index.html`** (only needed if you want to pre-bake a default
+vehicle for an offline demo - vehicle selection otherwise happens inside
+the app itself):
 ```bash
 python3 build_diagnostic_app.py
 ```
-This prompts for make/model/year, fetches that vehicle's OBDb data if
-available, and writes a new `index.html`. In Google Colab, running the
-same script also triggers a normal file download of the result.
+Leave the make/model/year prompts blank to get an app that opens straight
+to its own vehicle-selection screen (this is what's included here). In
+Google Colab, running the same script also triggers a normal file
+download of the result.
 
 ## AI tool use
 

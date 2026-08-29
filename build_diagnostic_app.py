@@ -1,27 +1,25 @@
 """
-Run this in Colab. It builds a single self-contained HTML file (plain
-HTML/CSS/JavaScript - no ipywidgets, no Python backend at runtime) and
-downloads it to your computer. Double-click the downloaded file and it
-opens as its own real browser window/tab, completely separate from Colab.
+Run this in Colab (or any Python 3 environment) to build the standalone
+diagnostic app.
 
-Why this instead of the ipywidgets version:
-  - ipywidgets with dynamically-created widgets is known to be unreliable
-    in Colab specifically (buttons made inside a click handler often need
-    an extra click, or don't register at all) - that's almost certainly
-    the cause of the "needs two clicks" issue.
-  - Colab renders cell output inside a sandboxed iframe, which generally
-    blocks window.open(), so there's no reliable way to pop a real window
-    open *from* a Colab cell.
-  - This sidesteps both: the app itself is a normal downloaded HTML file,
-    opened normally by your OS/browser, with plain JS handling every
-    click directly (no comm channel, no lag, no double-click behavior).
-
-The Live PID Reference data is fetched from OBDb ONCE, here in Colab
-(which does have working internet access), and embedded directly into the
-HTML file - so the popup never needs to make its own network call and can
-never fail to display it silently.
-
-To check a different vehicle's PIDs, just rerun this cell with new inputs.
+What's new in this version:
+  - Vehicle selection is back, and lives INSIDE the app itself: a "Change
+    Vehicle" screen lets you type a make/model/year and the app fetches
+    that vehicle's OBDb live-PID data directly from the browser via
+    fetch() - no need to regenerate the file through Python anymore.
+    (This only works when the page is served over http(s) - e.g. GitHub
+    Pages - because browsers block fetch() from a double-clicked local
+    file. If you open it as a local file, the rest of the app still
+    works fine; only the live PID fetch is skipped, with a clear message
+    explaining why.)
+  - The decision tree is much deeper: Engine (Starting Issues + four
+    Performance Issue branches), Brakes & Steering (Brake Pedal + Steering
+    Wheel), and Electrical & Lights (three sub-branches), each walking
+    through several rounds of concrete tests before reaching a specific
+    root cause - not a one-step guess.
+  - You can still optionally pre-bake a default vehicle here in Python
+    (handy for an offline demo); leave the prompts blank to skip that and
+    have the app open straight to the vehicle-selection screen.
 """
 
 import re
@@ -37,7 +35,7 @@ except ImportError:
     KNOWN_MODELS = []
 
 # ============================================================
-# OBDb integration (same logic as the notebook version)
+# OBDb integration (Python side - only used if you pre-bake a vehicle)
 # ============================================================
 
 OBDB_RAW_BASE = "https://raw.githubusercontent.com/OBDb/{repo}/main/signalsets/v3/default.json"
@@ -56,9 +54,6 @@ def _http_get_text(url, timeout=5, method="GET"):
 
 
 def _probe_repo(repo, timeout=4):
-    """True/False for exists/not-found. Raises OBDbNetworkError for an
-    actual connectivity failure (as opposed to a normal 404), so callers
-    can stop burning time retrying candidates once the network is down."""
     url = OBDB_RAW_BASE.format(repo=repo)
     req = urllib.request.Request(url, headers={"User-Agent": "diagnostic-assistant"}, method="HEAD")
     try:
@@ -105,7 +100,7 @@ def find_obdb_repo(make, model):
         if repo in seen:
             continue
         seen.add(repo)
-        if _probe_repo(repo):  # may raise OBDbNetworkError - let it propagate
+        if _probe_repo(repo):
             return repo
 
     all_repos = _list_obdb_repos()
@@ -134,8 +129,6 @@ def parse_signalset(raw_json_text):
 
 
 def fetch_obdb_signalset(make, model):
-    """Returns (signals_dict_or_None, repo_name_or_None). Raises
-    OBDbNetworkError if GitHub is unreachable at all."""
     repo = find_obdb_repo(make, model)
     if not repo:
         return None, None
@@ -144,48 +137,395 @@ def fetch_obdb_signalset(make, model):
 
 
 # ============================================================
-# Decision tree
+# Decision tree - Engine, Brakes & Steering, Electrical & Lights
+# Each branch is several rounds of concrete tests deep, not a single guess.
 # ============================================================
 
 DIAGNOSTIC_TREE = {
     "Engine": {
         "question": "What is the primary engine symptom?",
         "options": {
+            "Starting Issues": {
+                "question": "Does the engine crank when you turn the key?",
+                "options": {
+                    "Cranks normally, just won't start": {
+                        "question": "Do you smell raw fuel, or does it backfire/sputter while cranking?",
+                        "options": {
+                            "Yes, floods / smells like fuel": {
+                                "diagnosis": "Possible Flooding or Over-Rich Condition",
+                                "tests": [{
+                                    "check": "Clear-Flood Start",
+                                    "instruction": "Hold the throttle fully open and crank for about 10 seconds. Does it start?",
+                                    "options": {
+                                        "Yes": "Flooded engine, likely a stuck-open injector or over-rich cold-start enrichment. Have the injector tested/cleaned and check the fuel pressure regulator.",
+                                        "No": {
+                                            "diagnosis": "Fuel/Ignition Cross-Check",
+                                            "tests": [{
+                                                "check": "Spark Test",
+                                                "instruction": "Pull a spark plug, ground it against bare metal on the block, and crank while watching for a blue spark. Do you see one?",
+                                                "options": {
+                                                    "No": "Ignition system fault (coil, crank/cam sensor, or ignition control module) combined with excess fuel. Test the crank/cam sensor signal and coil resistance.",
+                                                    "Yes": "Fuel delivery is over-rich despite good spark - likely a stuck injector or failed fuel pressure regulator. Check fuel pressure and injector leak-down."
+                                                }
+                                            }]
+                                        }
+                                    }
+                                }]
+                            },
+                            "No unusual smell/sputter": {
+                                "diagnosis": "No-Spark / No-Fuel Diagnosis",
+                                "tests": [{
+                                    "check": "Spark Test",
+                                    "instruction": "Pull a spark plug, ground it to the block, and crank briefly. Do you see spark?",
+                                    "options": {
+                                        "No": {
+                                            "question": "Check the crank position sensor connector and ignition coil connections for corrosion or looseness. Any visible damage?",
+                                            "options": {
+                                                "Yes, damaged/loose wiring": "Wiring or connector fault at the crank sensor or coil pack. Clean/reseat or repair, then retest for spark.",
+                                                "No visible damage": "Failed crankshaft/camshaft position sensor or ignition control module. Test sensor signal against spec and replace if absent."
+                                            }
+                                        },
+                                        "Yes": {
+                                            "diagnosis": "Fuel Delivery Check",
+                                            "tests": [{
+                                                "check": "Fuel Pump Prime",
+                                                "instruction": "Turn the key to 'ON' (not crank) and listen near the tank for the fuel pump priming hum (2-3 seconds). Do you hear it?",
+                                                "options": {
+                                                    "No": "Fuel pump not priming. Check the fuel pump fuse and relay first, then voltage at the pump connector; replace the pump if it has power but doesn't run.",
+                                                    "Yes": "Fuel reaches the rail but isn't combusting properly - test fuel pressure against spec, then verify timing marks/timing belt or chain condition if pressure is normal."
+                                                }
+                                            }]
+                                        }
+                                    }
+                                }]
+                            }
+                        }
+                    },
+                    "Cranks slow/labored": {
+                        "question": "Turn on the headlights with the engine off. Do they dim significantly or start out dim?",
+                        "options": {
+                            "Yes, dim/weak": {
+                                "diagnosis": "Battery/Charging Check",
+                                "tests": [{
+                                    "check": "Battery Voltage",
+                                    "instruction": "Check battery voltage at rest (engine off, ~30 min after last run). Is it below about 12.2V?",
+                                    "options": {
+                                        "Below 12.2V": "Weak or discharged battery. Charge fully and load-test; replace if it won't hold a charge.",
+                                        "12.2V or higher": {
+                                            "question": "Inspect the battery terminals and cable ends for corrosion or looseness. Found any?",
+                                            "options": {
+                                                "Yes": "Corroded/loose battery connection causing voltage drop under cranking load. Clean terminals and retorque connections.",
+                                                "No": "Battery voltage is fine, so the starter motor is likely drawing excess current or has worn brushes. Bench-test or replace the starter."
+                                            }
+                                        }
+                                    }
+                                }]
+                            },
+                            "No, lights stay bright": "Mechanical drag in the starter or engine, not a battery/voltage issue. Check the starter for binding and confirm the engine turns freely by hand."
+                        }
+                    },
+                    "Rapid clicking, doesn't crank": {
+                        "diagnosis": "Cranking Circuit Check",
+                        "tests": [{
+                            "check": "Battery Voltage Under Load",
+                            "instruction": "Check battery voltage at the terminals while attempting to start. Does it drop below about 9-10V?",
+                            "options": {
+                                "Yes, drops low": "Battery too weak/sulfated to supply cranking current. Load-test and replace if it fails; check the charging system afterward.",
+                                "No, holds voltage": {
+                                    "question": "If safely accessible, have someone lightly tap the starter housing with a wrench while you turn the key. Does it start?",
+                                    "options": {
+                                        "Yes": "Worn starter motor brushes or solenoid contacts. Replace the starter motor/solenoid.",
+                                        "No": "Starter relay failure or a bad ground strap. Check the starter relay and main ground strap between engine and chassis."
+                                    }
+                                }
+                            }
+                        }]
+                    },
+                    "Nothing at all (silent)": {
+                        "question": "Do the dash lights and other accessories work normally?",
+                        "options": {
+                            "No, everything's dead": "Dead battery, blown main fuse, or a disconnected/corroded battery cable. Check main fuses and battery cable connections first.",
+                            "Yes, dash/accessories work": {
+                                "question": "If it's an automatic, try starting in Park and then in Neutral. Does it start in one but not the other?",
+                                "options": {
+                                    "Yes, one but not the other": "Faulty neutral safety switch or a misadjusted shift linkage. Inspect/adjust the linkage; test/replace the switch.",
+                                    "Doesn't start in either": "Ignition switch failure or a bad starter relay/fuse. Check the starter relay/fuse, then test ignition switch continuity in 'start.'"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "Performance Issue": {
                 "question": "When does it happen?",
                 "options": {
                     "Hesitation/Stumbling": {
                         "diagnosis": "Potential Fuel or Air Delivery Issue",
-                        "tests": [
-                            {
-                                "check": "Fuel Pressure",
-                                "instruction": "Connect a pressure gauge to the fuel rail. Is pressure within spec?",
-                                "options": {
-                                    "Yes": {
-                                        "question": "Pressure OK. Let's check injectors. Do you hear a clicking sound from each injector using a screwdriver as a stethoscope?",
+                        "tests": [{
+                            "check": "Cold vs Warm Behavior",
+                            "instruction": "Does the hesitation happen mostly when the engine is cold, or at all temperatures?",
+                            "options": {
+                                "Mostly when cold": "Weak cold-start fuel enrichment, often from a coolant temperature sensor reading incorrectly. Compare the sensor reading to actual engine temperature.",
+                                "All temperatures": {
+                                    "diagnosis": "Air/Fuel Metering Check",
+                                    "tests": [{
+                                        "check": "Air Filter",
+                                        "instruction": "Pull the air filter and inspect it. Is it visibly dirty or clogged?",
                                         "options": {
-                                            "Yes": "Injectors are firing. Check for electrical pulse with a noid light.",
-                                            "No": "Injector failure. Replace the non-clicking injector."
+                                            "Dirty/clogged": "Restricted airflow from a dirty air filter. Replace the air filter.",
+                                            "Filter looks fine": {
+                                                "question": "Does the hesitation feel like a gradual power loss, or a sharp stumble/jerk?",
+                                                "options": {
+                                                    "Gradual power loss": "Fuel delivery can't keep up under load - commonly a clogged fuel filter or a fuel pump losing pressure. Test fuel pressure under load.",
+                                                    "Sharp stumble/jerk": "Dirty/failing MAF sensor or a vacuum leak. Clean the MAF sensor and inspect vacuum lines/intake gaskets for cracks."
+                                                }
+                                            }
                                         }
-                                    },
-                                    "No": "Replace fuel pump or filter."
-                                }
-                            },
-                            {
-                                "check": "MAF Sensor",
-                                "instruction": "Unplug the MAF sensor. Does the car idle better?",
-                                "options": {
-                                    "Yes": "MAF sensor is faulty or dirty.",
-                                    "No": "MAF is likely OK. Check for vacuum leaks."
+                                    }]
                                 }
                             }
-                        ]
+                        }]
                     },
                     "Overheating": {
                         "diagnosis": "Cooling System Failure",
-                        "tests": [
-                            {"check": "Coolant Level", "instruction": "Check reservoir and radiator (when cold). Is it full?", "options": {"Yes": "Check thermostat or fan.", "No": "Inspect for external leaks or head gasket issues."}}
-                        ]
+                        "tests": [{
+                            "check": "Coolant Level",
+                            "instruction": "Check reservoir and radiator (when cold). Is it full?",
+                            "options": {
+                                "No, low or empty": {
+                                    "question": "Look under the car and around hoses/radiator/water pump for wet spots or dried coolant residue. Do you see a leak?",
+                                    "options": {
+                                        "Yes, visible leak": {
+                                            "question": "Is the leak from a hose, the radiator itself, or near the water pump pulley (front of engine)?",
+                                            "options": {
+                                                "A hose": "Cracked or split coolant hose. Replace the hose and clamp, refill, and bleed the cooling system.",
+                                                "The radiator": "Radiator core or seam leak. Repair or replace the radiator, then refill and bleed.",
+                                                "Water pump area": "Water pump shaft seal failure. Replace the water pump."
+                                            }
+                                        },
+                                        "No visible leak": "Possible internal leak (head gasket). Check for white/sweet-smelling exhaust and a milky film on the oil dipstick; pressure-test the cooling system."
+                                    }
+                                },
+                                "Yes, full": {
+                                    "diagnosis": "Cooling Circulation Check",
+                                    "tests": [{
+                                        "check": "Cooling Fan Operation",
+                                        "instruction": "With the engine warmed up and temp rising, does the radiator cooling fan turn on?",
+                                        "options": {
+                                            "No": {
+                                                "question": "Check the fan fuse and relay. Is either blown/faulty?",
+                                                "options": {
+                                                    "Yes, blown/faulty": "Blown fan fuse or a bad fan relay. Replace and confirm the fan now runs.",
+                                                    "No, fuse/relay OK": "Failed fan motor, or a coolant temp sensor/switch not signaling the fan. Power the fan directly from the battery to test it."
+                                                }
+                                            },
+                                            "Yes": {
+                                                "question": "Feel the upper radiator hose once the temp gauge is rising. Does it get hot along with the engine, or stay cool?",
+                                                "options": {
+                                                    "Stays cool": "Thermostat stuck closed, preventing coolant circulation. Replace the thermostat.",
+                                                    "Gets hot normally": "Points to a water pump impeller slipping (spinning but not pumping) or a partially clogged radiator core. Check pump impeller and radiator flow."
+                                                }
+                                            }
+                                        }
+                                    }]
+                                }
+                            }
+                        }]
+                    },
+                    "Rough idle or misfire feeling": {
+                        "diagnosis": "Misfire / Rough Idle Check",
+                        "tests": [{
+                            "check": "Check Engine Light",
+                            "instruction": "Does the check engine light come on, and if so, does it flash or stay steady?",
+                            "options": {
+                                "Yes, flashing": "Active misfire being detected by the ECU - a flashing light warns of catalytic converter damage risk. Stop driving hard soon; scan for the specific cylinder code (P030x) and check that cylinder's plug/coil/injector.",
+                                "Yes, steady": {
+                                    "question": "How long since the spark plugs were last replaced?",
+                                    "options": {
+                                        "Over ~60,000 mi / 100,000 km, or unknown": "Worn spark plugs and/or aging ignition coils are the most likely cause. Replace spark plugs and inspect coil packs.",
+                                        "Recently replaced": "Since plugs are fresh, this points to a vacuum leak or a dirty/failing fuel injector instead. Inspect intake gaskets/vacuum hoses and consider an injector cleaning."
+                                    }
+                                },
+                                "No light at all": "Rough idle without a stored code often points to a dirty throttle body or idle air control valve. Clean the throttle body and IAC valve."
+                            }
+                        }]
+                    },
+                    "Vibration at speed": {
+                        "question": "Does the vibration change with vehicle speed, or stay the same regardless of speed?",
+                        "options": {
+                            "Changes/worse with speed": {
+                                "question": "Do you feel it mainly through the steering wheel, the seat/floor, or both?",
+                                "options": {
+                                    "Steering wheel mainly": "Front wheel imbalance or a bent front rim. Have the front wheels balanced and inspected.",
+                                    "Seat/floor mainly": "Rear wheel imbalance, or a driveshaft/CV joint issue. Balance rear wheels and inspect the driveline.",
+                                    "Both": "Uneven tire wear or an alignment issue affecting multiple wheels. Inspect tire wear and get a full alignment."
+                                }
+                            },
+                            "Stays the same regardless of speed": "Not wheel/tire related - likely a worn engine or transmission mount. Inspect mounts for cracking or excessive play."
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "Brakes & Steering": {
+        "question": "Where do you feel the issue?",
+        "options": {
+            "Brake Pedal": {
+                "question": "How does the pedal feel?",
+                "options": {
+                    "Spongy/Soft": {
+                        "question": "Have you recently had brake work done, or added brake fluid?",
+                        "options": {
+                            "Yes, recent work/fluid": "Air was likely introduced into the lines during service. Bleed the brakes starting from the wheel farthest from the master cylinder.",
+                            "No recent work": {
+                                "diagnosis": "Brake Fluid System Check",
+                                "tests": [{
+                                    "check": "Brake Fluid Level",
+                                    "instruction": "Check the brake fluid reservoir level. Is it low?",
+                                    "options": {
+                                        "Low": {
+                                            "question": "Inspect each wheel for fluid staining or wetness at the caliper/wheel cylinder. Any leak visible?",
+                                            "options": {
+                                                "Yes": "Leaking caliper, wheel cylinder, or brake line. Repair/replace the leaking component and bleed the system.",
+                                                "No visible leak": "Fluid loss without an external leak suggests the master cylinder is bypassing internally. Pressure-test and replace if bypassing."
+                                            }
+                                        },
+                                        "Normal": "Air trapped in the lines without an active leak, or a soft/ballooning rubber brake hose. Bleed all four brakes and inspect flexible hoses."
+                                    }
+                                }]
+                            }
+                        }
+                    },
+                    "Pulsating/Shaking": {
+                        "question": "Does the pulsation happen every time you brake, or mainly from higher speeds?",
+                        "options": {
+                            "Every time, even low speed": "Warped front rotors. Have them measured and resurfaced or replaced.",
+                            "Mainly from higher speed": {
+                                "question": "Do you also feel a wobble in the steering wheel, not just the pedal?",
+                                "options": {
+                                    "Yes, steering wheel too": "Front rotor warp combined with possible front wheel bearing play. Inspect both.",
+                                    "Only in the pedal": "Rear rotor warp or an out-of-round rear brake drum. Inspect the rear brake components."
+                                }
+                            }
+                        }
+                    },
+                    "Goes to the floor": {
+                        "question": "Does the pedal slowly sink to the floor when held at a stop, or did it drop suddenly while driving?",
+                        "options": {
+                            "Sinks slowly while held": "Internal master cylinder bypass from worn seals. Replace the master cylinder. Do not drive until repaired.",
+                            "Dropped suddenly": {
+                                "question": "Check under the car and at each wheel for fresh brake fluid. Found a leak?",
+                                "options": {
+                                    "Yes": "Ruptured brake line/hose or a caliper/wheel cylinder blowout. Vehicle is unsafe to drive - repair and fully bleed before driving again.",
+                                    "No visible leak": "Internal seal failure in the master cylinder or a failed proportioning valve. Have the brake system inspected immediately; do not drive."
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "Steering Wheel": {
+                "question": "Is steering difficult, or does it pull to one side?",
+                "options": {
+                    "Heavy/Hard to turn": {
+                        "question": "Is this hydraulic power steering (belt-driven pump) or electric power steering?",
+                        "options": {
+                            "Hydraulic / not sure": {
+                                "diagnosis": "Power Steering Fluid Check",
+                                "tests": [{
+                                    "check": "Power Steering Fluid Level",
+                                    "instruction": "Check the power steering fluid reservoir. Is the level low?",
+                                    "options": {
+                                        "Low": {
+                                            "question": "Look for fluid stains near the steering rack, pump, or hoses. Any leak found?",
+                                            "options": {
+                                                "Yes": "Leaking power steering hose, rack seal, or pump seal. Repair the leak, then refill and bleed.",
+                                                "No visible leak": "Fluid is low without an obvious leak, suggesting a slow seep at the pump shaft seal. Top off and monitor."
+                                            }
+                                        },
+                                        "Normal": "Fluid level is fine, so this points to a failing power steering pump or a slipping/worn serpentine belt. Inspect belt tension and pump for noise."
+                                    }
+                                }]
+                            },
+                            "Electric power steering": "Likely an EPS motor or steering control module fault. Scan for steering-system-specific fault codes."
+                        }
+                    },
+                    "Pulling to one side": {
+                        "diagnosis": "Tire and Alignment Check",
+                        "tests": [{
+                            "check": "Tire Pressure",
+                            "instruction": "Check tire pressure on all four tires. Are they equal and at the recommended PSI?",
+                            "options": {
+                                "No, uneven pressure": "Uneven tire pressure causing the pull. Inflate all tires to spec and retest before investigating further.",
+                                "Yes, pressures are even": {
+                                    "question": "Has the vehicle hit a significant pothole or curb recently?",
+                                    "options": {
+                                        "Yes": "Alignment change or a bent suspension component from the impact. Get an alignment check and inspect suspension for damage.",
+                                        "No": "Gradual alignment drift, or a front brake caliper dragging on one side. Get a wheel alignment and check for a dragging caliper."
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                }
+            }
+        }
+    },
+    "Electrical & Lights": {
+        "question": "What electrical component is failing?",
+        "options": {
+            "Exterior Lights": {
+                "question": "Is it one bulb out, or multiple lights / an entire side not working?",
+                "options": {
+                    "Just one bulb": "A single burned-out bulb. Replace the bulb; check the corresponding fuse if a new bulb still doesn't light.",
+                    "Multiple lights out on one side": "Bad ground connection or a failed relay serving that circuit. Check the grounding point and relevant relay.",
+                    "All exterior lights out": {
+                        "question": "Check the main lighting fuse in the fuse box. Is it blown?",
+                        "options": {
+                            "Yes, blown": "Blown main lighting fuse, possibly from a short. Replace the fuse; if it blows again, look for chafed wiring.",
+                            "No, fuse is fine": "Likely a failed headlight switch or a body control module fault. Test the switch and check BCM lighting outputs."
+                        }
+                    }
+                }
+            },
+            "Interior Electronics": {
+                "question": "Which accessories are affected - just one, or several at once?",
+                "options": {
+                    "Just one accessory": "Isolated fault, most likely a blown fuse or failed component dedicated to that accessory.",
+                    "Several accessories at once": {
+                        "question": "Check the main accessory/interior fuse(s). Any blown?",
+                        "options": {
+                            "Yes": "Blown shared accessory fuse, likely from a short in one of the connected circuits. Replace the fuse, then isolate which device is drawing excess current.",
+                            "No": "Body Control Module (BCM) fault or a bad chassis ground strap. Check chassis grounds first, then consider BCM diagnostics."
+                        }
+                    }
+                }
+            },
+            "Battery keeps dying": {
+                "question": "Does it die overnight/while parked, or while you're driving/idling?",
+                "options": {
+                    "Dies while parked": {
+                        "diagnosis": "Parasitic Draw Check",
+                        "tests": [{
+                            "check": "Parasitic Draw",
+                            "instruction": "With the car off and locked, measure current draw in series with the negative terminal. Is it above roughly 50mA?",
+                            "options": {
+                                "Yes, high draw": "Parasitic electrical draw from a circuit that isn't powering down. Pull fuses one at a time to isolate the offending circuit.",
+                                "No, draw is normal": "Normal draw means the battery itself is likely old/weak. Load-test and replace if it fails."
+                            }
+                        }]
+                    },
+                    "Dies while driving": {
+                        "diagnosis": "Charging System Check",
+                        "tests": [{
+                            "check": "Alternator Output Voltage",
+                            "instruction": "Check alternator output voltage with the engine running (should read ~13.5-14.5V). Is it in range?",
+                            "options": {
+                                "No, out of range": "The charging system isn't keeping up with electrical demand. Inspect the alternator and serpentine belt for slipping/wear.",
+                                "Yes, in range": "Charging system checks out - recheck for a parasitic draw or a weak battery instead."
+                            }
+                        }]
                     }
                 }
             }
@@ -201,7 +541,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <title>Automotive Diagnostic Assistant</title>
 <style>
   body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#ffffff; color:#212529;
-         max-width:820px; margin:24px auto; padding:0 16px; }
+         max-width:860px; margin:24px auto; padding:0 16px; }
   h2, h3 { color:#212529; }
   .box { padding:12px; border-radius:4px; margin:10px 0; border-left:6px solid #adb5bd;
          background:#f8f9fa; font-size:14px; line-height:1.5; }
@@ -217,7 +557,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .btn-warning { background:#ffc107; color:#212529; }
   .btn-primary { background:#0d6efd; }
   .btn-success { background:#28a745; }
-  .text-input { padding:9px; border:1px solid #ced4da; border-radius:4px; font-size:14px; min-width:220px; }
+  .text-input { padding:9px; border:1px solid #ced4da; border-radius:4px; font-size:14px; min-width:180px; }
   .testbox { border:1px solid #dee2e6; border-radius:4px; padding:12px; margin:10px 0; background:#ffffff; }
   .pidnote { font-size:0.85em; color:#495057; margin-top:6px; }
   .search-link { display:inline-block; background:#4285f4; color:#ffffff !important; padding:9px 14px;
@@ -226,6 +566,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   table { border-collapse:collapse; width:100%; font-size:13px; }
   th, td { padding:6px 8px; text-align:left; border-bottom:1px solid #eee; }
   th { background:#f1f3f5; position:sticky; top:0; }
+  .breadcrumb { font-size:0.85em; color:#6c757d; margin-bottom:6px; }
 </style>
 </head>
 <body>
@@ -234,6 +575,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
 <script>
 const DATA = __DATA_JSON__;
+const OBDB_RAW_BASE = "https://raw.githubusercontent.com/OBDb/{repo}/main/signalsets/v3/default.json";
 
 function escapeHtml(s) {
   const d = document.createElement('div');
@@ -246,6 +588,70 @@ function clearScreen() {
   el.innerHTML = '';
   return el;
 }
+
+function mkBox(html, cls) {
+  const d = document.createElement('div');
+  d.className = 'box ' + cls;
+  d.innerHTML = html;
+  return d;
+}
+
+function mkInput(placeholder, value) {
+  const i = document.createElement('input');
+  i.type = 'text';
+  i.placeholder = placeholder;
+  i.className = 'text-input';
+  if (value) i.value = value;
+  return i;
+}
+
+// ---------- OBDb live fetch (runs in the browser) ----------
+
+async function tryFetchRepo(repo) {
+  const res = await fetch(OBDB_RAW_BASE.replace('{repo}', repo));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return await res.json();
+}
+
+function parseSignalset(json) {
+  const signals = {};
+  (json.commands || []).forEach(cmd => {
+    (cmd.signals || []).forEach(sig => {
+      signals[sig.id] = {
+        name: sig.name || sig.id,
+        unit: (sig.fmt || {}).unit || '',
+        header: cmd.hdr || '?',
+        pid: cmd.cmd || {}
+      };
+    });
+  });
+  return signals;
+}
+
+async function fetchObdbSignalset(make, model) {
+  make = make.trim(); model = model.trim();
+  const candidates = [];
+  if (model) {
+    candidates.push(`${make}-${model}`.replace(/\s+/g, '-'));
+    candidates.push(`${make}-${model.replace(/([A-Za-z])(\d)/g, '$1-$2')}`.replace(/\s+/g, '-'));
+  }
+  candidates.push(make.replace(/\s+/g, '-'));
+
+  let sawNetworkError = false;
+  for (const repo of [...new Set(candidates)]) {
+    try {
+      const json = await tryFetchRepo(repo);
+      if (json) return { signals: parseSignalset(json), repo };
+    } catch (e) {
+      sawNetworkError = true;
+    }
+  }
+  if (sawNetworkError) throw new Error('network');
+  return { signals: null, repo: null };
+}
+
+// ---------- PID matching for test steps ----------
 
 function similarity(a, b) {
   const wa = new Set(a.toLowerCase().split(/\W+/).filter(Boolean));
@@ -270,8 +676,152 @@ function matchPidForCheck(checkText) {
   return `Live PID match: <b>${escapeHtml(info.name)}</b> - cmd ${escapeHtml(JSON.stringify(info.pid))} @ header ${escapeHtml(info.header)} (${escapeHtml(info.unit)})`;
 }
 
+// ---------- vehicle selection ----------
+
+function showVehiclePrompt() {
+  const el = clearScreen();
+  el.appendChild(mkBox("<b>Enter your vehicle</b> to enable the Live PID Reference (optional - everything else works without it).", 'neutral'));
+
+  const row = document.createElement('div');
+  row.className = 'btnrow';
+  const v = DATA.vehicle || {};
+  const makeInput = mkInput('Make (e.g. Toyota)', v.make);
+  const modelInput = mkInput('Model (e.g. Camry)', v.model);
+  const yearInput = mkInput('Year (e.g. 2015)', v.year);
+  row.append(makeInput, modelInput, yearInput);
+  el.appendChild(row);
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'btnrow';
+
+  const loadBtn = document.createElement('button');
+  loadBtn.className = 'btn btn-success';
+  loadBtn.textContent = 'Load Vehicle';
+  loadBtn.addEventListener('click', () => loadVehicle(makeInput.value, modelInput.value, yearInput.value));
+  btnRow.appendChild(loadBtn);
+
+  const skipBtn = document.createElement('button');
+  skipBtn.className = 'btn';
+  skipBtn.textContent = 'Skip for now';
+  skipBtn.addEventListener('click', () => {
+    DATA.vehicle = DATA.vehicle || { make: '', model: '', year: '' };
+    showInitialPrompt();
+  });
+  btnRow.appendChild(skipBtn);
+  el.appendChild(btnRow);
+}
+
+async function loadVehicle(make, model, year) {
+  DATA.vehicle = { make: (make || '').trim(), model: (model || '').trim(), year: (year || '').trim() };
+  const el = clearScreen();
+  el.appendChild(mkBox(`Looking up OBDb data for ${escapeHtml(DATA.vehicle.year)} ${escapeHtml(DATA.vehicle.make)} ${escapeHtml(DATA.vehicle.model)}...`, 'neutral'));
+
+  try {
+    const { signals, repo } = await fetchObdbSignalset(DATA.vehicle.make, DATA.vehicle.model);
+    DATA.pid_signals = signals || {};
+    DATA.pid_repo = repo;
+    if (signals) {
+      showInitialPrompt(`Loaded ${Object.keys(signals).length} live PID signals from OBDb repo <b>${escapeHtml(repo)}</b>.`, 'success');
+    } else {
+      showInitialPrompt(`No OBDb repository found for '<b>${escapeHtml(DATA.vehicle.make)} ${escapeHtml(DATA.vehicle.model)}</b>' - continuing without live PID data.`, 'warning');
+    }
+  } catch (e) {
+    DATA.pid_signals = {};
+    DATA.pid_repo = null;
+    showInitialPrompt(`Couldn't reach GitHub to fetch live PID data. If you opened this file directly (file://), browsers block that - try hosting it (e.g. GitHub Pages) instead. Continuing without live PID data.`, 'warning');
+  }
+}
+
+// ---------- main screen ----------
+
+function showInitialPrompt(noteHtml, noteCls) {
+  const el = clearScreen();
+  const v = DATA.vehicle || {};
+  const heading = document.createElement('h3');
+  heading.textContent = (v.make || v.model) ? `Diagnostic for ${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() : 'Diagnostic Assistant';
+  el.appendChild(heading);
+
+  if (noteHtml) el.appendChild(mkBox(noteHtml, noteCls || 'neutral'));
+
+  const prompt = document.createElement('div');
+  prompt.innerHTML = "<b>Do you have a code, want to describe the issue, or look up this vehicle's live sensor PIDs?</b>";
+  el.appendChild(prompt);
+
+  const row = document.createElement('div');
+  row.className = 'btnrow';
+
+  const codeInput = mkInput('Enter OBD-II Code');
+  row.appendChild(codeInput);
+
+  const lookupBtn = document.createElement('button');
+  lookupBtn.className = 'btn btn-info';
+  lookupBtn.textContent = 'Lookup Code';
+  lookupBtn.addEventListener('click', () => lookupCode(codeInput.value));
+  row.appendChild(lookupBtn);
+  codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(codeInput.value); });
+
+  const descBtn = document.createElement('button');
+  descBtn.className = 'btn btn-warning';
+  descBtn.textContent = 'Describe Symptoms';
+  descBtn.addEventListener('click', renderSymptomPrompt);
+  row.appendChild(descBtn);
+
+  const pidBtn = document.createElement('button');
+  pidBtn.className = 'btn';
+  pidBtn.textContent = 'Live PID Reference (OBDb)';
+  pidBtn.addEventListener('click', showPidReference);
+  row.appendChild(pidBtn);
+
+  const vehicleBtn = document.createElement('button');
+  vehicleBtn.className = 'btn';
+  vehicleBtn.textContent = 'Change Vehicle';
+  vehicleBtn.addEventListener('click', showVehiclePrompt);
+  row.appendChild(vehicleBtn);
+
+  el.appendChild(row);
+}
+
+function showPidReference() {
+  const el = clearScreen();
+  const v = DATA.vehicle || {};
+  el.appendChild(Object.assign(document.createElement('h3'), { textContent: `Diagnostic for ${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Diagnostic Assistant' }));
+
+  const signals = DATA.pid_signals || {};
+  const ids = Object.keys(signals);
+
+  if (ids.length === 0) {
+    el.appendChild(mkBox(
+      `No live PID data loaded yet. Use "Change Vehicle" to enter a make/model (this needs the page to be hosted over http/https - it won't work if opened as a local file).`,
+      'warning'
+    ));
+  } else {
+    el.appendChild(mkBox(
+      `Loaded <b>${ids.length}</b> signals from OBDb repo <a href="https://github.com/OBDb/${escapeHtml(DATA.pid_repo)}" target="_blank">${escapeHtml(DATA.pid_repo)}</a>. These are live PIDs for a real scan tool/ELM327 adapter - matching test steps in the decision tree show the exact PID to query.`,
+      'success'
+    ));
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    let rows = '';
+    ids.slice(0, 200).forEach(id => {
+      const s = signals[id];
+      rows += `<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(id)}</td><td>${escapeHtml(s.header)}</td><td>${escapeHtml(JSON.stringify(s.pid))}</td><td>${escapeHtml(s.unit)}</td></tr>`;
+    });
+    wrap.innerHTML = `<table><tr><th>Signal</th><th>ID</th><th>Header</th><th>Cmd</th><th>Unit</th></tr>${rows}</table>`;
+    el.appendChild(wrap);
+  }
+
+  const back = document.createElement('button');
+  back.className = 'btn btn-success';
+  back.textContent = 'Back';
+  back.addEventListener('click', () => showInitialPrompt());
+  el.appendChild(back);
+}
+
+// ---------- DTC lookup ----------
+
 function appendSearchHelper(el, resultText) {
-  const query = encodeURIComponent(`${DATA.vehicle.year} ${DATA.vehicle.make} ${DATA.vehicle.model} ${resultText}`);
+  const v = DATA.vehicle || {};
+  const query = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} ${resultText}`);
   const link = document.createElement('a');
   link.href = `https://www.google.com/search?q=${query}`;
   link.target = '_blank';
@@ -282,9 +832,90 @@ function appendSearchHelper(el, resultText) {
   const restart = document.createElement('button');
   restart.className = 'btn btn-success';
   restart.textContent = 'Start New Triage';
-  restart.addEventListener('click', showInitialPrompt);
+  restart.addEventListener('click', () => showInitialPrompt());
   el.appendChild(restart);
 }
+
+function lookupCode(rawCode) {
+  const code = (rawCode || '').toUpperCase().trim();
+  const res = DATA.obd_database[code];
+  const el = clearScreen();
+  if (res) {
+    el.appendChild(mkBox(`<b>${escapeHtml(code)}:</b> ${escapeHtml(res.desc)}`, 'success'));
+    appendSearchHelper(el, `${code} ${res.desc}`);
+  } else {
+    el.appendChild(mkBox('Code not found. Describe the symptoms instead below.', 'danger'));
+    renderSymptomPromptInto(el);
+  }
+}
+
+// ---------- free-text symptom description ----------
+
+const SYMPTOM_INDEX = [
+  { keywords: ["won't start", "wont start", "no start", "cranks but", "turns over but"], path: ["Engine", "Starting Issues", "Cranks normally, just won't start"] },
+  { keywords: ["slow crank", "cranks slow", "labored crank", "weak battery", "struggles to start", "sluggish start"], path: ["Engine", "Starting Issues", "Cranks slow/labored"] },
+  { keywords: ["clicking", "just clicks", "rapid click", "wont turn over", "won't turn over"], path: ["Engine", "Starting Issues", "Rapid clicking, doesn't crank"] },
+  { keywords: ["completely dead", "totally silent", "nothing happens when i turn the key"], path: ["Engine", "Starting Issues", "Nothing at all (silent)"] },
+  { keywords: ["hesitat", "stumbles", "bogs down", "bogging", "lack of power", "sputter", "stall"], path: ["Engine", "Performance Issue", "Hesitation/Stumbling"] },
+  { keywords: ["overheat", "running hot", "temperature gauge high", "steam from hood", "coolant boiling"], path: ["Engine", "Performance Issue", "Overheating"] },
+  { keywords: ["rough idle", "misfire", "engine shakes at idle", "jerking", "sputtering idle"], path: ["Engine", "Performance Issue", "Rough idle or misfire feeling"] },
+  { keywords: ["vibrat", "shaking at speed", "shimmy", "wobble"], path: ["Engine", "Performance Issue", "Vibration at speed"] },
+  { keywords: ["spongy brake", "soft pedal", "brake pedal soft", "mushy brake", "air in the lines"], path: ["Brakes & Steering", "Brake Pedal", "Spongy/Soft"] },
+  { keywords: ["brake pulsat", "pedal pulses", "shudder when braking", "warped rotor", "shaking when braking"], path: ["Brakes & Steering", "Brake Pedal", "Pulsating/Shaking"] },
+  { keywords: ["pedal goes to the floor", "no brakes", "brakes failed", "lost brakes"], path: ["Brakes & Steering", "Brake Pedal", "Goes to the floor"] },
+  { keywords: ["hard to turn", "heavy steering", "stiff steering", "power steering"], path: ["Brakes & Steering", "Steering Wheel", "Heavy/Hard to turn"] },
+  { keywords: ["pulls to one side", "pulling left", "pulling right", "drifts to one side"], path: ["Brakes & Steering", "Steering Wheel", "Pulling to one side"] },
+  { keywords: ["headlight", "tail light", "brake light out", "turn signal not working", "bulb out"], path: ["Electrical & Lights", "Exterior Lights"] },
+  { keywords: ["radio won't turn on", "power windows not working", "dash lights out", "infotainment"], path: ["Electrical & Lights", "Interior Electronics"] },
+  { keywords: ["battery dies overnight", "battery keeps dying", "dead battery every morning", "parasitic draw"], path: ["Electrical & Lights", "Battery keeps dying"] },
+];
+
+function walkTree(path) {
+  let node = DATA.diagnostic_tree;
+  for (const key of path) {
+    node = (node && node.options) ? node.options[key] : node[key];
+  }
+  return node;
+}
+
+function renderSymptomPromptInto(el) {
+  const label = document.createElement('div');
+  label.innerHTML = '<b>Describe the issue:</b>';
+  el.appendChild(label);
+
+  const input = mkInput('e.g., car stumbles and hesitates');
+  input.style.width = '70%';
+  el.appendChild(input);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-primary';
+  btn.textContent = 'Analyze';
+  btn.addEventListener('click', () => analyzeSymptoms(input.value));
+  el.appendChild(btn);
+
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') analyzeSymptoms(input.value); });
+  input.focus();
+}
+
+function renderSymptomPrompt() {
+  renderSymptomPromptInto(clearScreen());
+}
+
+function analyzeSymptoms(rawText) {
+  const text = (rawText || '').toLowerCase();
+  let best = null, bestScore = 0;
+  SYMPTOM_INDEX.forEach(entry => {
+    const score = entry.keywords.reduce((acc, k) => acc + (text.includes(k) ? 1 : 0), 0);
+    if (score > bestScore) { bestScore = score; best = entry; }
+  });
+  if (best) {
+    renderNode(walkTree(best.path));
+  } else {
+    renderNode(DATA.diagnostic_tree);
+  }
+}
+
+// ---------- unified tree dispatcher (question / tests / conclusion) ----------
 
 function renderNode(node) {
   if (typeof node === 'string') { renderConclusion(node); return; }
@@ -294,10 +925,7 @@ function renderNode(node) {
 
 function renderQuestion(node) {
   const el = clearScreen();
-  const q = document.createElement('div');
-  q.className = 'box neutral';
-  q.innerHTML = `<b>${escapeHtml(node.question || 'Select an option:')}</b>`;
-  el.appendChild(q);
+  el.appendChild(mkBox(`<b>${escapeHtml(node.question || 'Select an option:')}</b>`, 'neutral'));
 
   const row = document.createElement('div');
   row.className = 'btnrow';
@@ -342,150 +970,20 @@ function renderTests(node) {
 
 function renderConclusion(text) {
   const el = clearScreen();
-  const box = document.createElement('div');
-  box.className = 'box success';
-  box.textContent = text;
-  el.appendChild(box);
+  el.appendChild(mkBox(escapeHtml(text), 'success'));
   appendSearchHelper(el, text);
 }
 
-function lookupCode(rawCode) {
-  const code = (rawCode || '').toUpperCase().trim();
-  const res = DATA.obd_database[code];
-  const el = clearScreen();
-  if (res) {
-    const box = document.createElement('div');
-    box.className = 'box success';
-    box.innerHTML = `<b>${escapeHtml(code)}:</b> ${escapeHtml(res.desc)}`;
-    el.appendChild(box);
-    appendSearchHelper(el, `${code} ${res.desc}`);
+// ---------- boot ----------
+
+function boot() {
+  if (DATA.vehicle && DATA.vehicle.make) {
+    showInitialPrompt();
   } else {
-    const box = document.createElement('div');
-    box.className = 'box danger';
-    box.textContent = 'Code not found. Describe the symptoms instead below.';
-    el.appendChild(box);
-    renderSymptomPromptInto(el);
+    showVehiclePrompt();
   }
 }
-
-function renderSymptomPromptInto(el) {
-  const label = document.createElement('div');
-  label.innerHTML = '<b>Describe the issue:</b>';
-  el.appendChild(label);
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = 'e.g., car stumbles';
-  input.className = 'text-input';
-  el.appendChild(input);
-
-  const btn = document.createElement('button');
-  btn.className = 'btn btn-primary';
-  btn.textContent = 'Analyze';
-  btn.addEventListener('click', () => analyzeSymptoms(input.value));
-  el.appendChild(btn);
-
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') analyzeSymptoms(input.value); });
-  input.focus();
-}
-
-function renderSymptomPrompt() {
-  renderSymptomPromptInto(clearScreen());
-}
-
-function analyzeSymptoms(rawText) {
-  const text = (rawText || '').toLowerCase();
-  let node;
-  if (['stumble', 'hesitat', 'gas', 'stall'].some(k => text.includes(k))) {
-    node = DATA.diagnostic_tree.Engine.options['Performance Issue'].options['Hesitation/Stumbling'];
-  } else if (['overheat', 'hot', 'temperature'].some(k => text.includes(k))) {
-    node = DATA.diagnostic_tree.Engine.options['Performance Issue'].options['Overheating'];
-  } else {
-    node = DATA.diagnostic_tree;
-  }
-  renderNode(node);
-}
-
-function showPidReference() {
-  const el = clearScreen();
-  const heading = document.createElement('h3');
-  heading.textContent = `Diagnostic for ${DATA.vehicle.year} ${DATA.vehicle.make} ${DATA.vehicle.model}`;
-  el.appendChild(heading);
-
-  const signals = DATA.pid_signals || {};
-  const ids = Object.keys(signals);
-
-  if (ids.length === 0) {
-    const box = document.createElement('div');
-    box.className = 'box warning';
-    box.innerHTML = `No OBDb repository was found for '<b>${escapeHtml(DATA.vehicle.make)} ${escapeHtml(DATA.vehicle.model)}</b>' when this file was generated. Coverage is community-contributed, so older or less common vehicles often aren't in there yet. Browse <a href="https://github.com/OBDb" target="_blank">github.com/OBDb</a> to check, or rerun the Colab cell after requesting the repo.`;
-    el.appendChild(box);
-  } else {
-    const summary = document.createElement('div');
-    summary.className = 'box success';
-    summary.innerHTML = `Loaded <b>${ids.length}</b> signals from OBDb repo <a href="https://github.com/OBDb/${escapeHtml(DATA.pid_repo)}" target="_blank">${escapeHtml(DATA.pid_repo)}</a> (embedded when this file was generated). These are live PIDs for a real scan tool/ELM327 adapter - matching test steps in the decision tree show the exact PID to query.`;
-    el.appendChild(summary);
-
-    const wrap = document.createElement('div');
-    wrap.className = 'table-wrap';
-    let rows = '';
-    ids.slice(0, 200).forEach(id => {
-      const s = signals[id];
-      rows += `<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(id)}</td><td>${escapeHtml(s.header)}</td><td>${escapeHtml(JSON.stringify(s.pid))}</td><td>${escapeHtml(s.unit)}</td></tr>`;
-    });
-    wrap.innerHTML = `<table><tr><th>Signal</th><th>ID</th><th>Header</th><th>Cmd</th><th>Unit</th></tr>${rows}</table>`;
-    el.appendChild(wrap);
-  }
-
-  const back = document.createElement('button');
-  back.className = 'btn btn-success';
-  back.textContent = 'Back';
-  back.addEventListener('click', showInitialPrompt);
-  el.appendChild(back);
-}
-
-function showInitialPrompt() {
-  const el = clearScreen();
-  const heading = document.createElement('h3');
-  heading.textContent = `Diagnostic for ${DATA.vehicle.year} ${DATA.vehicle.make} ${DATA.vehicle.model}`;
-  el.appendChild(heading);
-
-  const prompt = document.createElement('div');
-  prompt.innerHTML = "<b>Do you have a code, want to describe the issue, or look up this vehicle's live sensor PIDs?</b>";
-  el.appendChild(prompt);
-
-  const row = document.createElement('div');
-  row.className = 'btnrow';
-
-  const codeInput = document.createElement('input');
-  codeInput.type = 'text';
-  codeInput.placeholder = 'Enter OBD-II Code';
-  codeInput.className = 'text-input';
-  row.appendChild(codeInput);
-
-  const lookupBtn = document.createElement('button');
-  lookupBtn.className = 'btn btn-info';
-  lookupBtn.textContent = 'Lookup Code';
-  lookupBtn.addEventListener('click', () => lookupCode(codeInput.value));
-  row.appendChild(lookupBtn);
-  codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(codeInput.value); });
-
-  const descBtn = document.createElement('button');
-  descBtn.className = 'btn btn-warning';
-  descBtn.textContent = 'Describe Symptoms';
-  descBtn.addEventListener('click', renderSymptomPrompt);
-  row.appendChild(descBtn);
-
-  const pidBtn = document.createElement('button');
-  pidBtn.className = 'btn';
-  pidBtn.textContent = 'Live PID Reference (OBDb)';
-  pidBtn.addEventListener('click', showPidReference);
-  row.appendChild(pidBtn);
-
-  el.appendChild(row);
-}
-
-showInitialPrompt();
+boot();
 </script>
 </body>
 </html>
@@ -493,21 +991,22 @@ showInitialPrompt();
 
 
 def build_app(make, model, year, filename="diagnostic_assistant.html"):
-    print(f"Looking up OBDb data for {year} {make} {model} ...")
-    try:
-        signals, repo = fetch_obdb_signalset(make, model)
-    except OBDbNetworkError as e:
-        print(f"Couldn't reach GitHub ({e}). Live PID Reference will show as unavailable in the app; "
-              f"everything else still works.")
-        signals, repo = None, None
-
-    if signals:
-        print(f"Found {len(signals)} signals in OBDb repo '{repo}'.")
-    else:
-        print("No OBDb repo found for this vehicle - Live PID Reference will show as unavailable.")
+    """make/model/year can be left blank - the generated app will then open
+    straight to its own vehicle-selection screen instead of a pre-baked one."""
+    signals, repo = None, None
+    if make.strip():
+        print(f"Looking up OBDb data for {year} {make} {model} ...")
+        try:
+            signals, repo = fetch_obdb_signalset(make, model)
+        except OBDbNetworkError as e:
+            print(f"Couldn't reach GitHub ({e}). Skipping pre-baked PID data.")
+        if signals:
+            print(f"Found {len(signals)} signals in OBDb repo '{repo}'.")
+        elif make.strip():
+            print("No OBDb repo found for this vehicle.")
 
     data = {
-        "vehicle": {"make": make, "model": model, "year": year},
+        "vehicle": {"make": make, "model": model, "year": year} if make.strip() else None,
         "obd_database": OBD_DATABASE,
         "diagnostic_tree": DIAGNOSTIC_TREE,
         "pid_signals": signals or {},
@@ -521,9 +1020,10 @@ def build_app(make, model, year, filename="diagnostic_assistant.html"):
 
 
 if __name__ == "__main__":
-    make = input("Vehicle make (e.g. Toyota): ").strip()
-    model = input("Vehicle model (e.g. Camry): ").strip()
-    year = input("Vehicle year (e.g. 2015): ").strip()
+    print("Leave these blank to have the app open straight to its own vehicle-selection screen.")
+    make = input("Vehicle make (optional, e.g. Toyota): ").strip()
+    model = input("Vehicle model (optional, e.g. Camry): ").strip()
+    year = input("Vehicle year (optional, e.g. 2015): ").strip()
 
     fname = build_app(make, model, year)
 
