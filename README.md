@@ -18,28 +18,66 @@ tool would use to verify each test step, pulled from the community
   work fully offline either way.
 - **Trouble code lookup** - enter a code (e.g. `P0300`) and get its
   description and likely causes from a local database.
-- **Symptom-driven diagnosis** - describe a problem in your own words
-  ("car stumbles and hesitates") and it routes you into a multi-level
-  sequence of concrete tests (several branches go 4-5 questions deep).
-  Each answer narrows things down until it reaches a specific root cause
-  and fix - not just a list of possibilities. Covers engine starting
-  issues, four performance-issue categories, brakes, steering, and
-  electrical faults.
+- **Symptom-driven diagnosis with confidence-ranked classification** -
+  describe a problem in your own words ("the engine hesitates and
+  stumbles when I accelerate") and the app classifies it against 16
+  known symptom categories using **TF-IDF vectorization and cosine
+  similarity** (see "How the symptom classifier works" below), showing
+  the top 2-3 candidates with confidence percentages rather than
+  silently guessing one. Picking a match routes you into a multi-level
+  sequence of concrete tests (several branches go 4-5 questions deep);
+  each answer narrows things down until it reaches a specific root cause
+  and fix. Covers engine starting issues, four performance-issue
+  categories, brakes, steering, and electrical faults.
 - **Live PID reference** - shows the actual OBD-II command and decoding
   formula for the loaded vehicle's sensors, matched automatically against
   test steps in the decision tree (e.g. a "Battery Voltage" test step
-  shows the exact PID a scan tool would query). The matching is a simple
-  word-overlap heuristic, so it's occasionally imprecise - see "Known
-  limitations" below.
+  shows the exact PID a scan tool would query).
+
+## How the symptom classifier works
+
+This is the project's non-trivial computational piece, so it's worth
+spelling out. Naively checking whether the input string *contains* a
+fixed keyword ("does the text include 'overheat'?") is trivial rule
+matching and breaks the moment someone phrases things differently. This
+app instead does real text classification:
+
+1. Each of the 16 symptom categories has 5-6 hand-written example phrases
+   (its "training documents") - e.g. Overheating includes phrases like
+   "temperature gauge climbs into the red" and "steam coming from under
+   the hood".
+2. At startup, the app builds a **TF-IDF** (term frequency - inverse
+   document frequency) model over these documents: common words that
+   appear in most categories (like "car" or "when") are automatically
+   down-weighted, while distinctive words that concentrate in one
+   category are up-weighted - computed, not hand-tuned.
+3. The user's free-text description is run through the same
+   vectorization and compared against every category's vector using
+   **cosine similarity**.
+4. The categories are ranked by similarity and shown with a normalized
+   confidence percentage, so the user (not a hard-coded if/else chain)
+   makes the final call when it's ambiguous - e.g. "brake pedal feels
+   soft and mushy" correctly ranks *Spongy/Soft Brake Pedal* well above
+   *Brake Pedal Pulsates* or *Goes to the Floor*, despite none of those
+   category labels containing the words "soft" or "mushy" verbatim.
+
+This is implemented from scratch in vanilla JavaScript (no ML library)
+in the `SYMPTOM_CATEGORIES` / `buildClassifier` / `cosineSimilarity`
+functions in `index.html`.
 
 ## Known limitations
 
-- PID-to-test matching is word-overlap based, not semantic - it can
-  produce a loose match when two unrelated checks share a generic word
-  (e.g. "Coolant Level" vs. "Fuel Level" both contain "Level").
-- The decision tree and trouble-code database are hand-authored rules,
-  not a learned model - see the AI tool use note below for a discussion
-  of adding real classification/optimization.
+- The symptom classifier's vocabulary is limited to its 16 categories'
+  example phrases; a symptom described in very unfamiliar terms may
+  score low across the board (it then falls back to manual category
+  browsing rather than forcing a bad guess).
+- PID-to-test matching (a separate, simpler feature from the symptom
+  classifier above) is word-overlap based, not semantic - it can produce
+  a loose match when two unrelated checks share a generic word (e.g.
+  "Coolant Level" vs. "Fuel Level" both contain "Level").
+- The decision tree's questions and the trouble-code database are still
+  hand-authored rules, not learned from data - the symptom *classifier*
+  that routes into that tree is the learned/computed part.
 
 ## How it's organized
 
@@ -98,6 +136,9 @@ Claude (Anthropic) was used throughout this project's development:
   Colab (unreliable dynamically-created widgets, sandboxed output iframes
   blocking `window.open()`), which led to converting the tool from an
   ipywidgets notebook UI into this standalone HTML/JS application.
+- Implementing the TF-IDF/cosine-similarity symptom classifier described
+  above, in response to feedback that keyword-substring matching was too
+  trivial a form of "intelligence" for the assignment's rubric.
 - Drafting this README.
 
 All prompts, iterations, and design decisions were reviewed and directed

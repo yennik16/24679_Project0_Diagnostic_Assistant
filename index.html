@@ -34,7 +34,9 @@
 </style>
 </head>
 <body>
-<h2>Professional Diagnostic Assistant</h2>
+<h2>Professional Diagnostic Assistant
+  <a href="#" id="start-over-link" style="font-size:0.5em; margin-left:12px; color:#0d6efd;">Start Over</a>
+</h2>
 <div id="screen"></div>
 
 <script>
@@ -313,26 +315,104 @@ function lookupCode(rawCode) {
   }
 }
 
-// ---------- free-text symptom description ----------
+// ---------- free-text symptom description: TF-IDF + cosine-similarity classifier ----------
+//
+// Each category below is backed by a small set of example phrases (its
+// "training documents"). On analysis, the same TF-IDF vectorization is
+// applied to the user's text and every category, then ranked by cosine
+// similarity - genuine vector-space text classification, not a
+// does-the-string-contain-this-substring check. See README for a fuller
+// explanation.
 
-const SYMPTOM_INDEX = [
-  { keywords: ["won't start", "wont start", "no start", "cranks but", "turns over but"], path: ["Engine", "Starting Issues", "Cranks normally, just won't start"] },
-  { keywords: ["slow crank", "cranks slow", "labored crank", "weak battery", "struggles to start", "sluggish start"], path: ["Engine", "Starting Issues", "Cranks slow/labored"] },
-  { keywords: ["clicking", "just clicks", "rapid click", "wont turn over", "won't turn over"], path: ["Engine", "Starting Issues", "Rapid clicking, doesn't crank"] },
-  { keywords: ["completely dead", "totally silent", "nothing happens when i turn the key"], path: ["Engine", "Starting Issues", "Nothing at all (silent)"] },
-  { keywords: ["hesitat", "stumbles", "bogs down", "bogging", "lack of power", "sputter", "stall"], path: ["Engine", "Performance Issue", "Hesitation/Stumbling"] },
-  { keywords: ["overheat", "running hot", "temperature gauge high", "steam from hood", "coolant boiling"], path: ["Engine", "Performance Issue", "Overheating"] },
-  { keywords: ["rough idle", "misfire", "engine shakes at idle", "jerking", "sputtering idle"], path: ["Engine", "Performance Issue", "Rough idle or misfire feeling"] },
-  { keywords: ["vibrat", "shaking at speed", "shimmy", "wobble"], path: ["Engine", "Performance Issue", "Vibration at speed"] },
-  { keywords: ["spongy brake", "soft pedal", "brake pedal soft", "mushy brake", "air in the lines"], path: ["Brakes & Steering", "Brake Pedal", "Spongy/Soft"] },
-  { keywords: ["brake pulsat", "pedal pulses", "shudder when braking", "warped rotor", "shaking when braking"], path: ["Brakes & Steering", "Brake Pedal", "Pulsating/Shaking"] },
-  { keywords: ["pedal goes to the floor", "no brakes", "brakes failed", "lost brakes"], path: ["Brakes & Steering", "Brake Pedal", "Goes to the floor"] },
-  { keywords: ["hard to turn", "heavy steering", "stiff steering", "power steering"], path: ["Brakes & Steering", "Steering Wheel", "Heavy/Hard to turn"] },
-  { keywords: ["pulls to one side", "pulling left", "pulling right", "drifts to one side"], path: ["Brakes & Steering", "Steering Wheel", "Pulling to one side"] },
-  { keywords: ["headlight", "tail light", "brake light out", "turn signal not working", "bulb out"], path: ["Electrical & Lights", "Exterior Lights"] },
-  { keywords: ["radio won't turn on", "power windows not working", "dash lights out", "infotainment"], path: ["Electrical & Lights", "Interior Electronics"] },
-  { keywords: ["battery dies overnight", "battery keeps dying", "dead battery every morning", "parasitic draw"], path: ["Electrical & Lights", "Battery keeps dying"] },
+const SYMPTOM_CATEGORIES = [
+  { label: "Won't Start (engine cranks)", path: ["Engine", "Starting Issues", "Cranks normally, just won't start"],
+    examples: ["the engine cranks but won't start", "it turns over but never starts", "starter spins fine but the engine won't fire", "cranks strong yet doesn't start", "engine turns over normally but refuses to start", "won't start even though it cranks"] },
+  { label: "Slow/Labored Cranking", path: ["Engine", "Starting Issues", "Cranks slow/labored"],
+    examples: ["engine cranks slowly", "slow labored cranking when starting", "struggles to turn over when starting", "sluggish weak cranking sound", "starter sounds weak and slow", "takes a long time to crank over"] },
+  { label: "Rapid Clicking, No Crank", path: ["Engine", "Starting Issues", "Rapid clicking, doesn't crank"],
+    examples: ["rapid clicking noise when turning the key", "just clicks repeatedly and won't crank", "hear fast clicking under the hood when starting", "key turns but only clicking happens", "rapid click click click no crank at all"] },
+  { label: "Completely Dead / No Response", path: ["Engine", "Starting Issues", "Nothing at all (silent)"],
+    examples: ["completely dead nothing happens when i turn the key", "totally silent no response at all", "no lights no sound nothing when starting", "dashboard completely dark and unresponsive", "car is entirely dead"] },
+  { label: "Hesitation or Stumbling", path: ["Engine", "Performance Issue", "Hesitation/Stumbling"],
+    examples: ["car hesitates and stumbles when accelerating", "engine bogs down under acceleration", "sputters and loses power when i press the gas", "lacks power and stumbles going uphill", "jerky hesitation when speeding up", "car stalls momentarily then continues"] },
+  { label: "Overheating", path: ["Engine", "Performance Issue", "Overheating"],
+    examples: ["engine is overheating", "temperature gauge climbs into the red", "steam coming from under the hood", "coolant is boiling over", "running really hot on the highway", "temp light comes on after driving a while"] },
+  { label: "Rough Idle / Misfire", path: ["Engine", "Performance Issue", "Rough idle or misfire feeling"],
+    examples: ["rough idle at stop lights", "engine shakes and misfires at idle", "jerking sensation while idling", "check engine light flashing with rough running", "sputtering idle feels uneven", "misfire feeling under light acceleration"] },
+  { label: "Vibration at Speed", path: ["Engine", "Performance Issue", "Vibration at speed"],
+    examples: ["vibration that gets worse at highway speed", "steering wheel shakes at speed", "shimmy and wobble over 50 mph", "car vibrates a lot on the freeway", "shaking through the seat at higher speeds"] },
+  { label: "Spongy or Soft Brake Pedal", path: ["Brakes & Steering", "Brake Pedal", "Spongy/Soft"],
+    examples: ["brake pedal feels spongy and soft", "mushy brake pedal that sinks slightly", "pedal feels squishy when braking", "soft brakes need more pressure than usual", "air feels like its in the brake lines"] },
+  { label: "Brake Pedal Pulsates/Shakes", path: ["Brakes & Steering", "Brake Pedal", "Pulsating/Shaking"],
+    examples: ["brake pedal pulsates when stopping", "steering shakes when i brake at speed", "pedal pulses and shudders during braking", "warped rotors causing brake vibration", "shaking sensation only when braking hard"] },
+  { label: "Brake Pedal Goes to the Floor", path: ["Brakes & Steering", "Brake Pedal", "Goes to the floor"],
+    examples: ["brake pedal goes all the way to the floor", "pedal sinks to the floor when i hold it", "lost my brakes and pedal hit the floor", "brakes failed and pedal went down completely", "no resistance pedal drops to the floorboard"] },
+  { label: "Steering Heavy / Hard to Turn", path: ["Brakes & Steering", "Steering Wheel", "Heavy/Hard to turn"],
+    examples: ["steering is very heavy and hard to turn", "power steering feels stiff", "hard to turn the wheel especially at low speed", "steering wheel requires a lot of effort", "no power assist steering feels heavy"] },
+  { label: "Steering Pulls to One Side", path: ["Brakes & Steering", "Steering Wheel", "Pulling to one side"],
+    examples: ["car pulls to the left while driving", "vehicle drifts to one side on its own", "steering pulls right constantly", "car veers to a side when i let go of the wheel", "alignment feels off pulling one direction"] },
+  { label: "Exterior Light Problem", path: ["Electrical & Lights", "Exterior Lights"],
+    examples: ["headlight is out", "tail light not working", "brake light bulb burned out", "turn signal doesn't light up", "one of my exterior lights stopped working"] },
+  { label: "Interior Electronics Problem", path: ["Electrical & Lights", "Interior Electronics"],
+    examples: ["radio won't turn on", "power windows stopped working", "dashboard lights are out", "infotainment screen is dead", "interior electronics not responding"] },
+  { label: "Battery Keeps Dying", path: ["Electrical & Lights", "Battery keeps dying"],
+    examples: ["battery dies overnight", "car battery keeps dying every morning", "dead battery every time i park it", "parasitic draw killing my battery", "battery drains even when the car is off"] },
 ];
+
+const STOPWORDS = new Set(["the", "a", "an", "is", "are", "it", "to", "of", "and", "in", "on", "at",
+  "this", "that", "my", "car", "i", "im", "its", "it's", "when", "does", "do", "with", "for", "has",
+  "have", "from", "just", "really", "very", "seems", "seem", "feels", "feel", "get", "gets", "getting"]);
+
+function tokenize(text) {
+  return (text || "").toLowerCase().split(/[^a-z0-9']+/).filter(w => w && !STOPWORDS.has(w));
+}
+
+function termFreq(doc) {
+  const counts = {};
+  doc.forEach(w => { counts[w] = (counts[w] || 0) + 1; });
+  const total = doc.length || 1;
+  const tf = {};
+  Object.keys(counts).forEach(w => { tf[w] = counts[w] / total; });
+  return tf;
+}
+
+let _idf = null, _categoryVectors = null;
+
+function buildClassifier() {
+  const docs = SYMPTOM_CATEGORIES.map(c => tokenize(c.examples.join(" ")));
+  const df = {};
+  docs.forEach(doc => { new Set(doc).forEach(w => { df[w] = (df[w] || 0) + 1; }); });
+  const n = docs.length;
+  _idf = {};
+  Object.keys(df).forEach(w => { _idf[w] = Math.log((n + 1) / (df[w] + 1)) + 1; }); // smoothed idf
+  _categoryVectors = docs.map(doc => tfidfVector(doc));
+}
+
+function tfidfVector(doc) {
+  const tf = termFreq(doc);
+  const vec = {};
+  Object.keys(tf).forEach(w => { vec[w] = tf[w] * (_idf[w] || 0); });
+  return vec;
+}
+
+function cosineSimilarity(vecA, vecB) {
+  let dot = 0, normA = 0, normB = 0;
+  const keys = new Set([...Object.keys(vecA), ...Object.keys(vecB)]);
+  keys.forEach(k => {
+    const a = vecA[k] || 0, b = vecB[k] || 0;
+    dot += a * b; normA += a * a; normB += b * b;
+  });
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function classifySymptoms(rawText) {
+  if (!_categoryVectors) buildClassifier();
+  const queryVec = tfidfVector(tokenize(rawText));
+  return SYMPTOM_CATEGORIES
+    .map((c, i) => ({ category: c, score: cosineSimilarity(queryVec, _categoryVectors[i]) }))
+    .sort((a, b) => b.score - a.score);
+}
 
 function walkTree(path) {
   let node = DATA.diagnostic_tree;
@@ -344,10 +424,10 @@ function walkTree(path) {
 
 function renderSymptomPromptInto(el) {
   const label = document.createElement('div');
-  label.innerHTML = '<b>Describe the issue:</b>';
+  label.innerHTML = '<b>Describe the issue, in a full sentence if you can:</b>';
   el.appendChild(label);
 
-  const input = mkInput('e.g., car stumbles and hesitates');
+  const input = mkInput('e.g., the engine hesitates and stumbles when I accelerate');
   input.style.width = '70%';
   el.appendChild(input);
 
@@ -365,18 +445,47 @@ function renderSymptomPrompt() {
   renderSymptomPromptInto(clearScreen());
 }
 
+const MIN_CONFIDENT_SCORE = 0.03; // below this, treat as "no real lexical match"
+const TOP_N_MATCHES = 3;
+
 function analyzeSymptoms(rawText) {
-  const text = (rawText || '').toLowerCase();
-  let best = null, bestScore = 0;
-  SYMPTOM_INDEX.forEach(entry => {
-    const score = entry.keywords.reduce((acc, k) => acc + (text.includes(k) ? 1 : 0), 0);
-    if (score > bestScore) { bestScore = score; best = entry; }
-  });
-  if (best) {
-    renderNode(walkTree(best.path));
-  } else {
-    renderNode(DATA.diagnostic_tree);
+  const ranked = classifySymptoms(rawText);
+  const top = ranked.slice(0, TOP_N_MATCHES).filter(r => r.score > MIN_CONFIDENT_SCORE);
+
+  if (top.length === 0) {
+    renderNode(DATA.diagnostic_tree); // no confident match - fall back to manual category browse
+    return;
   }
+  renderSymptomMatches(rawText, top);
+}
+
+function renderSymptomMatches(rawText, top) {
+  const el = clearScreen();
+  el.appendChild(mkBox(`Based on "<i>${escapeHtml(rawText)}</i>", here's what this looks most like (ranked by text similarity to known symptom patterns):`, 'neutral'));
+
+  const totalScore = top.reduce((sum, r) => sum + r.score, 0);
+  top.forEach(r => {
+    const pct = Math.round((r.score / totalScore) * 100);
+    const row = document.createElement('div');
+    row.className = 'testbox';
+    row.innerHTML = `<b>${escapeHtml(r.category.label)}</b> - ${pct}% confidence
+      <div style="background:#e9ecef; border-radius:3px; height:8px; margin-top:6px;">
+        <div style="background:#0d6efd; width:${pct}%; height:100%; border-radius:3px;"></div>
+      </div>`;
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.textContent = 'This one';
+    btn.style.marginTop = '8px';
+    btn.addEventListener('click', () => renderNode(walkTree(r.category.path)));
+    row.appendChild(btn);
+    el.appendChild(row);
+  });
+
+  const manualBtn = document.createElement('button');
+  manualBtn.className = 'btn';
+  manualBtn.textContent = 'None of these - browse manually';
+  manualBtn.addEventListener('click', () => renderNode(DATA.diagnostic_tree));
+  el.appendChild(manualBtn);
 }
 
 // ---------- unified tree dispatcher (question / tests / conclusion) ----------
@@ -441,6 +550,10 @@ function renderConclusion(text) {
 // ---------- boot ----------
 
 function boot() {
+  document.getElementById('start-over-link').addEventListener('click', e => {
+    e.preventDefault();
+    showInitialPrompt();
+  });
   if (DATA.vehicle && DATA.vehicle.make) {
     showInitialPrompt();
   } else {
