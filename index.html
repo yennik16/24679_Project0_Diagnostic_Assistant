@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Automotive Diagnostic Assistant</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#ffffff; color:#212529;
+         max-width:820px; margin:24px auto; padding:0 16px; }
+  h2, h3 { color:#212529; }
+  .box { padding:12px; border-radius:4px; margin:10px 0; border-left:6px solid #adb5bd;
+         background:#f8f9fa; font-size:14px; line-height:1.5; }
+  .box.success { background:#d4edda; border-color:#28a745; color:#155724; }
+  .box.danger  { background:#f8d7da; border-color:#dc3545; color:#721c24; }
+  .box.warning { background:#fff3cd; border-color:#e0a800; color:#664d03; }
+  .box.neutral { background:#f1f3f5; border-color:#adb5bd; color:#212529; }
+  .btnrow { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; align-items:center; }
+  .btn { padding:9px 16px; border:none; border-radius:4px; cursor:pointer; font-size:14px;
+         background:#6c757d; color:#ffffff; }
+  .btn:hover { opacity:0.85; }
+  .btn-info { background:#17a2b8; }
+  .btn-warning { background:#ffc107; color:#212529; }
+  .btn-primary { background:#0d6efd; }
+  .btn-success { background:#28a745; }
+  .text-input { padding:9px; border:1px solid #ced4da; border-radius:4px; font-size:14px; min-width:220px; }
+  .testbox { border:1px solid #dee2e6; border-radius:4px; padding:12px; margin:10px 0; background:#ffffff; }
+  .pidnote { font-size:0.85em; color:#495057; margin-top:6px; }
+  .search-link { display:inline-block; background:#4285f4; color:#ffffff !important; padding:9px 14px;
+                 border-radius:4px; text-decoration:none; margin:8px 8px 8px 0; }
+  .table-wrap { max-height:340px; overflow:auto; border:1px solid #dee2e6; border-radius:4px; margin-top:8px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { padding:6px 8px; text-align:left; border-bottom:1px solid #eee; }
+  th { background:#f1f3f5; position:sticky; top:0; }
+</style>
+</head>
+<body>
+<h2>Professional Diagnostic Assistant</h2>
+<div id="screen"></div>
+
+<script>
+const DATA = {"vehicle": {"make": "Toyota", "model": "Camry", "year": 2015}, "obd_database": {"P0100": {"desc": "Mass or Volume Air Flow Circuit Malfunction. Likely causes: dirty/failing MAF sensor, torn intake ducting, or a wiring fault at the MAF connector."}, "P0101": {"desc": "MAF Circuit Range/Performance Problem. Likely causes: dirty MAF element, a vacuum leak downstream of the MAF, or aftermarket intake miscalibration."}, "P0113": {"desc": "Intake Air Temperature Sensor 1 Circuit High. Likely causes: open circuit, corroded connector, or a failed IAT sensor."}, "P0128": {"desc": "Coolant Thermostat (temp below regulating threshold). Likely causes: thermostat stuck open, low coolant, or a faulty coolant temp sensor."}, "P0130": {"desc": "O2 Sensor Circuit Malfunction (Bank 1, Sensor 1). Likely causes: failed upstream O2 sensor, wiring damage, or an exhaust leak near the sensor."}, "P0171": {"desc": "System Too Lean (Bank 1). Likely causes: vacuum leak, dirty MAF sensor, weak fuel pump/clogged injectors, or an exhaust leak before the O2 sensor."}, "P0174": {"desc": "System Too Lean (Bank 2). Likely causes: vacuum leak on bank 2, fuel delivery restriction, or a failing MAF sensor."}, "P0175": {"desc": "System Too Rich (Bank 2). Likely causes: leaking fuel injector, failed fuel pressure regulator, or a faulty O2 sensor."}, "P0300": {"desc": "Random or Multiple Cylinder Misfire Detected. Likely causes: worn spark plugs, failing ignition coil(s), a vacuum leak, or low fuel pressure."}, "P0301": {"desc": "Cylinder 1 Misfire Detected. Likely causes: bad spark plug/coil on cylinder 1, a fuel injector fault, or low compression."}, "P0302": {"desc": "Cylinder 2 Misfire Detected. Likely causes: bad spark plug/coil on cylinder 2, a fuel injector fault, or low compression."}, "P0303": {"desc": "Cylinder 3 Misfire Detected. Likely causes: bad spark plug/coil on cylinder 3, a fuel injector fault, or low compression."}, "P0304": {"desc": "Cylinder 4 Misfire Detected. Likely causes: bad spark plug/coil on cylinder 4, a fuel injector fault, or low compression."}, "P0325": {"desc": "Knock Sensor 1 Circuit Malfunction. Likely causes: failed knock sensor, damaged wiring, or a loose sensor mount."}, "P0335": {"desc": "Crankshaft Position Sensor Circuit Malfunction. Likely causes: failed crank sensor, a damaged reluctor ring, or a wiring fault."}, "P0340": {"desc": "Camshaft Position Sensor Circuit Malfunction. Likely causes: failed cam sensor, timing chain/belt wear, or a wiring fault."}, "P0401": {"desc": "EGR Flow Insufficient. Likely causes: clogged EGR valve/passages, a failed EGR valve, or carbon buildup."}, "P0420": {"desc": "Catalytic Converter Efficiency Below Threshold (Bank 1). Likely causes: deteriorated catalytic converter, a failing O2 sensor, or an exhaust leak."}, "P0430": {"desc": "Catalytic Converter Efficiency Below Threshold (Bank 2). Likely causes: deteriorated catalytic converter, a failing O2 sensor, or an exhaust leak."}, "P0442": {"desc": "Evaporative Emission System Leak Detected (small leak). Likely causes: loose/damaged gas cap, a cracked EVAP hose, or a faulty purge valve."}, "P0455": {"desc": "Evaporative Emission System Leak Detected (large leak). Likely causes: gas cap left off/loose, a disconnected EVAP hose, or a failed purge/vent valve."}, "P0500": {"desc": "Vehicle Speed Sensor Malfunction. Likely causes: failed VSS, damaged wiring, or an ABS tone ring issue."}, "P0505": {"desc": "Idle Control System Malfunction. Likely causes: faulty IAC valve, a dirty throttle body, or a vacuum leak."}, "P0506": {"desc": "Idle RPM Lower Than Expected. Likely causes: carbon buildup in the throttle body, a vacuum leak, or a failing IAC valve."}, "P0507": {"desc": "Idle RPM Higher Than Expected. Likely causes: vacuum leak, a stuck-open IAC valve, or throttle body carbon buildup."}, "P0562": {"desc": "System Voltage Low. Likely causes: weak/failing battery, a failing alternator, or corroded battery terminals."}, "P0563": {"desc": "System Voltage High. Likely causes: overcharging alternator/regulator, a bad battery cell, or a wiring fault."}, "P0700": {"desc": "Transmission Control System Malfunction (informational - check the TCM for a specific code)."}, "P0715": {"desc": "Input/Turbine Speed Sensor Circuit Malfunction. Likely causes: failed input speed sensor, a wiring fault, or low transmission fluid."}, "P0720": {"desc": "Output Speed Sensor Circuit Malfunction. Likely causes: failed output speed sensor, a damaged tone ring, or a wiring fault."}, "P0730": {"desc": "Incorrect Gear Ratio. Likely causes: low/degraded transmission fluid, worn clutch packs, or a valve body fault."}, "P0740": {"desc": "Torque Converter Clutch Circuit Malfunction. Likely causes: failed TCC solenoid, low transmission fluid, or a wiring fault."}}, "diagnostic_tree": {"Engine": {"question": "What is the primary engine symptom?", "options": {"Performance Issue": {"question": "When does it happen?", "options": {"Hesitation/Stumbling": {"diagnosis": "Potential Fuel or Air Delivery Issue", "tests": [{"check": "Fuel Pressure", "instruction": "Connect a pressure gauge to the fuel rail. Is pressure within spec?", "options": {"Yes": {"question": "Pressure OK. Let's check injectors. Do you hear a clicking sound from each injector using a screwdriver as a stethoscope?", "options": {"Yes": "Injectors are firing. Check for electrical pulse with a noid light.", "No": "Injector failure. Replace the non-clicking injector."}}, "No": "Replace fuel pump or filter."}}, {"check": "MAF Sensor", "instruction": "Unplug the MAF sensor. Does the car idle better?", "options": {"Yes": "MAF sensor is faulty or dirty.", "No": "MAF is likely OK. Check for vacuum leaks."}}]}, "Overheating": {"diagnosis": "Cooling System Failure", "tests": [{"check": "Coolant Level", "instruction": "Check reservoir and radiator (when cold). Is it full?", "options": {"Yes": "Check thermostat or fan.", "No": "Inspect for external leaks or head gasket issues."}}]}}}}}}, "pid_signals": {"CAMRY_12V_V": {"name": "Battery voltage", "unit": "volts", "header": "700", "pid": {"22": "1002"}}, "CAMRY_INJ_VOL": {"name": "Injection volume", "unit": "liters", "header": "700", "pid": {"22": "1017"}}, "CAMRY_INJECTOR_PORT": {"name": "Injector port", "unit": "milliseconds", "header": "700", "pid": {"22": "1018"}}, "CAMRY_INJECTION": {"name": "Injection", "unit": "", "header": "700", "pid": {"22": "1019"}}, "CAMRY_A_F_RATIO_LEARNED_IDLE_BANK_1": {"name": "A/F ratio learned idle, bank 1", "unit": "percent", "header": "700", "pid": {"22": "102A"}}, "CAMRY_A_F_RATIO_LEARNED_LOW_BANK_1": {"name": "A/F ratio learned low, bank 1", "unit": "percent", "header": "700", "pid": {"22": "102A"}}, "CAMRY_A_F_RATIO_LEARNED_MID_1_BANK_1": {"name": "A/F ratio learned mid 1, bank 1", "unit": "percent", "header": "700", "pid": {"22": "102A"}}, "CAMRY_A_F_RATIO_LEARNED_MID_2_BANK_1": {"name": "A/F ratio learned mid 2, bank 1", "unit": "percent", "header": "700", "pid": {"22": "102A"}}, "CAMRY_A_F_RATIO_LEARNED_HIGH_BANK_1": {"name": "A/F ratio learned high, bank 1", "unit": "percent", "header": "700", "pid": {"22": "102A"}}, "CAMRY_ECT_IGN": {"name": "Engine coolant temperature, at ignition", "unit": "celsius", "header": "700", "pid": {"22": "1041"}}, "CAMRY_ECT_INIT": {"name": "Engine coolant temperature, initial", "unit": "celsius", "header": "700", "pid": {"22": "1041"}}, "CAMRY_EWP_TARGET_VSS": {"name": "Electric water pump target speed", "unit": "rpm", "header": "700", "pid": {"22": "1043"}}, "CAMRY_EWP_RPM": {"name": "Electric water pump RPM", "unit": "rpm", "header": "700", "pid": {"22": "1043"}}, "CAMRY_COOLING_FAN_DUTY_RATIO": {"name": "Cooling fan duty ratio", "unit": "percent", "header": "700", "pid": {"22": "1046"}}, "CAMRY_KNOCK_CORRECT_LEARNED_VALUE": {"name": "Knock correction, learned value", "unit": "scalar", "header": "700", "pid": {"22": "105C"}}, "CAMRY_KNOCK_FEEDBACK_VALUE": {"name": "Knock feedback value", "unit": "scalar", "header": "700", "pid": {"22": "105C"}}, "CAMRY_ECU_INTERNAL_T": {"name": "Internal temperature", "unit": "celsius", "header": "700", "pid": {"22": "105E"}}, "CAMRY_EXHAUST_VVT_OCV_CONTROL_DUTY": {"name": "Exhaust VVT oil control valve control duty", "unit": "percent", "header": "700", "pid": {"22": "1062"}}, "CAMRY_FUEL_PUMP_DUTY_RATIO": {"name": "Fuel pump duty ratio", "unit": "kilopascal", "header": "700", "pid": {"22": "106A"}}, "CAMRY_DIST_SINCE_BAT_DISC": {"name": "Distance since last battery cable disconnection", "unit": "kilometers", "header": "700", "pid": {"22": "106C"}}, "CAMRY_INTAKE_VVT_TARGET_ANGLE_B1": {"name": "Intake VVT target angle B1", "unit": "degrees", "header": "700", "pid": {"22": "106F"}}, "CAMRY_EXHAUST_VVT_TARGET_ANGLE_B1": {"name": "Exhaust VVT target angle B1", "unit": "degrees", "header": "700", "pid": {"22": "1071"}}, "CAMRY_EOP": {"name": "Engine oil pressure", "unit": "kilopascal", "header": "700", "pid": {"22": "1074"}}, "CAMRY_IDLE_SAC_CYL_1": {"name": "Idle spark advance control, cylinder 1", "unit": "degrees", "header": "700", "pid": {"22": "1078"}}, "CAMRY_IDLE_SAC_CYL_2": {"name": "Idle spark advance control, cylinder 2", "unit": "degrees", "header": "700", "pid": {"22": "1078"}}, "CAMRY_IDLE_SAC_CYL_3": {"name": "Idle spark advance control, cylinder 3", "unit": "degrees", "header": "700", "pid": {"22": "1078"}}, "CAMRY_IDLE_SAC_CYL_4": {"name": "Idle spark advance control, cylinder 4", "unit": "degrees", "header": "700", "pid": {"22": "1078"}}, "CAMRY_EOT": {"name": "Engine oil temperature", "unit": "celsius", "header": "700", "pid": {"22": "107B"}}, "CAMRY_ROUGH_IDLE_CYL_1": {"name": "Rough idle, cylinder 1", "unit": "degrees", "header": "700", "pid": {"22": "1084"}}, "CAMRY_ROUGH_IDLE_CYL_2": {"name": "Rough idle, cylinder 2", "unit": "degrees", "header": "700", "pid": {"22": "1084"}}, "CAMRY_ROUGH_IDLE_CYL_3": {"name": "Rough idle, cylinder 3", "unit": "degrees", "header": "700", "pid": {"22": "1084"}}, "CAMRY_ROUGH_IDLE_CYL_4": {"name": "Rough idle, cylinder 4", "unit": "degrees", "header": "700", "pid": {"22": "1084"}}, "CAMRY_INTAKE_VVT_CHANGE_ANGLE_BANK_1": {"name": "Intake VVT change angle, bank 1", "unit": "degrees", "header": "700", "pid": {"22": "1087"}}, "CAMRY_EXHAUST_VVT_ANGLE_B1": {"name": "Exhaust VVT change angle, bank 1", "unit": "degrees", "header": "700", "pid": {"22": "1088"}}, "CAMRY_EXHAUST_VVT_HOLD_LEARN_B1": {"name": "Exhaust VVT hold learn value, bank 1", "unit": "percent", "header": "700", "pid": {"22": "1089"}}, "CAMRY_VVT_IE_DUTY_RATIO_BANK_1": {"name": "Variable valve timing duty ratio, bank 1", "unit": "percent", "header": "700", "pid": {"22": "108A"}}, "CAMRY_INTAKE_VVT_OVER_RET_LEARN_B1": {"name": "Intake VVT most over-retarded learn value, bank 1", "unit": "degrees", "header": "700", "pid": {"22": "108D"}}, "CAMRY_EXHAUST_VVT_OVER_ADV_LEARN_B1": {"name": "Exhaust VVT timing most over-advanced learn value, bank 1", "unit": "degrees", "header": "700", "pid": {"22": "108F"}}, "CAMRY_AF_LEARN_IDLE_PORT_B1": {"name": "A/F ratio learn value idle, bank 1", "unit": "percent", "header": "700", "pid": {"22": "10A2"}}, "CAMRY_AF_LEARN_LOW_PORT_B1": {"name": "A/F ratio learn value low, bank 1", "unit": "percent", "header": "700", "pid": {"22": "10A2"}}, "CAMRY_AF_LEARN_MID1_PORT_B1": {"name": "A/F ratio learn value mid.1, bank 1", "unit": "percent", "header": "700", "pid": {"22": "10A2"}}, "CAMRY_AF_LEARN_MID2_PORT_B1": {"name": "A/F ratio learn value mid.2, bank 1", "unit": "percent", "header": "700", "pid": {"22": "10A2"}}, "CAMRY_AF_LEARN_HIGH_PORT_B1": {"name": "A/F ratio learn value high, bank 1", "unit": "percent", "header": "700", "pid": {"22": "10A2"}}, "CAMRY_MISFIRE_CNT": {"name": "Misfire count, all cylinders", "unit": "scalar", "header": "700", "pid": {"22": "10A5"}}, "CAMRY_MISFIRE_CYL1": {"name": "Misfire count, cylinder 1", "unit": "scalar", "header": "700", "pid": {"22": "10A7"}}, "CAMRY_MISFIRE_CYL2": {"name": "Misfire count, cylinder 2", "unit": "scalar", "header": "700", "pid": {"22": "10A7"}}, "CAMRY_MISFIRE_CYL3": {"name": "Misfire count, cylinder 3", "unit": "scalar", "header": "700", "pid": {"22": "10A7"}}, "CAMRY_MISFIRE_CYL4": {"name": "Misfire count, cylinder 4", "unit": "scalar", "header": "700", "pid": {"22": "10A7"}}, "CAMRY_MISFIRE_LOAD": {"name": "Misfire load", "unit": "percent", "header": "700", "pid": {"22": "10AA"}}, "CAMRY_MISFIRE_RPM": {"name": "Misfire RPM", "unit": "rpm", "header": "700", "pid": {"22": "10AA"}}, "CAMRY_MISFIRE_MARGIN": {"name": "Misfire margin", "unit": "rpm", "header": "700", "pid": {"22": "10AA"}}, "CAMRY_LFP": {"name": "Low fuel pressure", "unit": "kilopascal", "header": "700", "pid": {"22": "10CD"}}, "CAMRY_ALT_DUTY_CYCLE": {"name": "Alternator output duty cycle", "unit": "percent", "header": "700", "pid": {"22": "15FA"}}, "CAMRY_AT_LOCK_UP_STATE": {"name": "Lock up state", "unit": "offon", "header": "700", "pid": {"22": "1620"}}, "CAMRY_GEAR": {"name": "Gear", "unit": "scalar", "header": "700", "pid": {"22": "1621"}}, "CAMRY_ATF_T_PAN_V3": {"name": "Transmission fluid temperature, pan var.3", "unit": "celsius", "header": "700", "pid": {"22": "1627"}}, "CAMRY_CAT_T_11": {"name": "Catalyst temperature, bank 1 sensor 1", "unit": "celsius", "header": "700", "pid": {"22": "1F3C"}}, "CAMRY_CAT_T_12": {"name": "Catalyst temperature, bank 1 sensor 2", "unit": "celsius", "header": "700", "pid": {"22": "1F3E"}}, "CAMRY_AMBIENT_T": {"name": "Ambient temperature", "unit": "celsius", "header": "700", "pid": {"22": "1F46"}}, "CAMRY_EOT_V2": {"name": "Engine oil temperature, variation 2", "unit": "celsius", "header": "700", "pid": {"22": "1F5C"}}, "CAMRY_HFP_TARGET": {"name": "High fuel pressure, target", "unit": "kilopascal", "header": "700", "pid": {"22": "1F6D"}}, "CAMRY_HFP_ACTUAL": {"name": "High fuel pressure, actual", "unit": "kilopascal", "header": "700", "pid": {"22": "1F6D"}}, "CAMRY_LOW_FUEL_PRESSURE": {"name": "Low fuel pressure", "unit": "kilopascal", "header": "700", "pid": {"22": "1F6D"}}, "CAMRY_ELECTRIC_WATER_PUMP": {"name": "Electric water pump", "unit": "rpm", "header": "700", "pid": {"22": "2827"}}, "CAMRY_ELECTRIC_THERMOSTAT_DUTY_RATIO": {"name": "Electric thermostat duty ratio", "unit": "percent", "header": "700", "pid": {"22": "2829"}}, "CAMRY_COOLANT_VALVE_1_CLOSE": {"name": "Coolant water route switching valve 1, closed?", "unit": "noyes", "header": "700", "pid": {"22": "282C"}}, "CAMRY_VVT_IE_OPENING_ANGLE_BANK_1": {"name": "Variable valve timing opening angle bank 1", "unit": "percent", "header": "700", "pid": {"22": "2843"}}, "CAMRY_COOLANT_VALVE_2_CLOSE": {"name": "Coolant water route switching valve 2, closed?", "unit": "noyes", "header": "700", "pid": {"22": "2847"}}, "CAMRY_EOP_CONTROL_VALVE": {"name": "Engine oil pressure control valve", "unit": "milliamps", "header": "700", "pid": {"22": "2848"}}, "CAMRY_LOCK_UP_STATE": {"name": "Lock up state", "unit": "offon", "header": "701", "pid": {"22": "1620"}}, "CAMRY_ATF_T_PAN": {"name": "Transmission fluid temperature, pan", "unit": "celsius", "header": "701", "pid": {"22": "1627"}}, "CAMRY_ATF_THERMAL_DEGRAD_EST": {"name": "Automatic transmission fluid thermal degradation estimate", "unit": "scalar", "header": "701", "pid": {"22": "162B"}}, "CAMRY_TIRE_T_FL": {"name": "Front left tire temperature", "unit": "celsius", "header": "750", "pid": {"21": "16"}}, "CAMRY_TIRE_T_FR": {"name": "Front right tire temperature", "unit": "celsius", "header": "750", "pid": {"21": "16"}}, "CAMRY_TIRE_T_RL": {"name": "Rear left tire temperature", "unit": "celsius", "header": "750", "pid": {"21": "16"}}, "CAMRY_TIRE_T_RR": {"name": "Rear right tire temperature", "unit": "celsius", "header": "750", "pid": {"21": "16"}}, "CAMRY_TIRE_T_SPARE": {"name": "Spare tire temperature", "unit": "celsius", "header": "750", "pid": {"21": "16"}}, "CAMRY_TIRE_P_FL": {"name": "Front left tire pressure", "unit": "bars", "header": "750", "pid": {"21": "30"}}, "CAMRY_TIRE_P_FR": {"name": "Front right tire pressure", "unit": "bars", "header": "750", "pid": {"21": "30"}}, "CAMRY_TIRE_P_RL": {"name": "Rear left tire pressure", "unit": "bars", "header": "750", "pid": {"21": "30"}}, "CAMRY_TIRE_P_RR": {"name": "Rear right tire pressure", "unit": "bars", "header": "750", "pid": {"21": "30"}}, "CAMRY_TIRE_P_SPARE": {"name": "Spare tire pressure", "unit": "bars", "header": "750", "pid": {"21": "30"}}, "CAMRY_HAZARD_SWITCH_HISTORY": {"name": "Hazard switch history", "unit": "", "header": "7B0", "pid": {"21": "BC"}}, "CAMRY_TIRE_FR_SPD": {"name": "Front right wheel speed", "unit": "kilometersPerHour", "header": "7B0", "pid": {"21": "03"}}, "CAMRY_TIRE_FL_SPD": {"name": "Front left wheel speed", "unit": "kilometersPerHour", "header": "7B0", "pid": {"21": "03"}}, "CAMRY_TIRE_RR_SPD": {"name": "Rear right wheel speed", "unit": "kilometersPerHour", "header": "7B0", "pid": {"21": "03"}}, "CAMRY_TIRE_RL_SPD": {"name": "Rear left wheel speed", "unit": "kilometersPerHour", "header": "7B0", "pid": {"21": "03"}}, "CAMRY_DECEL": {"name": "Deceleration", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "05"}}, "CAMRY_DECEL_2": {"name": "Deceleration 2", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "05"}}, "CAMRY_YAW_1": {"name": "Yaw rate, sensor 1", "unit": "scalar", "header": "7B0", "pid": {"21": "06"}}, "CAMRY_YAW_2": {"name": "Yaw rate, sensor 2", "unit": "scalar", "header": "7B0", "pid": {"21": "06"}}, "CAMRY_WHEEL_CYLINDER_PRESSURE": {"name": "Wheel cylinder pressure", "unit": "volts", "header": "7B0", "pid": {"21": "07"}}, "CAMRY_RESERVOIR_WARNING_SW": {"name": "Reservoir warning", "unit": "offon", "header": "7B0", "pid": {"21": "1D"}}, "CAMRY_MAIN_IDLE_SW": {"name": "Main idle", "unit": "offon", "header": "7B0", "pid": {"21": "1D"}}, "CAMRY_STOP_LIGHT_SW": {"name": "Stop light", "unit": "offon", "header": "7B0", "pid": {"21": "1F"}}, "CAMRY_PARKING_BRAKE_SW": {"name": "Parking brake", "unit": "offon", "header": "7B0", "pid": {"21": "1F"}}, "CAMRY_VEHICLE_SPEED_7B0": {"name": "Vehicle speed, 7B0", "unit": "kilometersPerHour", "header": "7B0", "pid": {"21": "21"}}, "CAMRY_STOP_LIGHT_RELAY": {"name": "Stop light relay", "unit": "offon", "header": "7B0", "pid": {"21": "3C"}}, "CAMRY_ABS_WARN": {"name": "Anti-lock braking system warning light", "unit": "offon", "header": "7B0", "pid": {"21": "3D"}}, "CAMRY_BRAKE_WARN": {"name": "Brake warning light", "unit": "offon", "header": "7B0", "pid": {"21": "3D"}}, "CAMRY_SLIP_WARN": {"name": "Slip indicator light", "unit": "offon", "header": "7B0", "pid": {"21": "3D"}}, "CAMRY_BUZZER": {"name": "Buzzer", "unit": "offon", "header": "7B0", "pid": {"21": "3D"}}, "CAMRY_ECB_WARN": {"name": "Electronic control brake warning light", "unit": "offon", "header": "7B0", "pid": {"21": "3D"}}, "CAMRY_FR_WHEEL_ACCELERATION": {"name": "Front right wheel acceleration", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "42"}}, "CAMRY_FL_WHEEL_ACCELERATION": {"name": "Front left wheel acceleration", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "42"}}, "CAMRY_RR_WHEEL_ACCELERATION": {"name": "Rear right wheel acceleration", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "42"}}, "CAMRY_RL_WHEEL_ACCELERATION": {"name": "Rear left wheel acceleration", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "42"}}, "CAMRY_ZP_DEC": {"name": "Zero point of deceleration", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "46"}}, "CAMRY_ZP_DEC2": {"name": "Zero point of deceleration 2", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "46"}}, "CAMRY_ZP_YAW": {"name": "Zero point of yaw rate", "unit": "scalar", "header": "7B0", "pid": {"21": "46"}}, "CAMRY_LAT_G": {"name": "Lateral g", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "47"}}, "CAMRY_LNG_G": {"name": "Forward and rearward g", "unit": "metersPerSecondSquared", "header": "7B0", "pid": {"21": "47"}}, "CAMRY_YAW": {"name": "Yaw rate value", "unit": "scalar", "header": "7B0", "pid": {"21": "47"}}, "CAMRY_STEERING_ANGLE": {"name": "Steering angle value", "unit": "degrees", "header": "7B0", "pid": {"21": "47"}}, "CAMRY_FR_REGEN_REQUEST": {"name": "Regenerative request", "unit": "newtonMeters", "header": "7B0", "pid": {"21": "48"}}, "CAMRY_FR_REGEN_OPERATION": {"name": "Regenerative operation", "unit": "newtonMeters", "header": "7B0", "pid": {"21": "48"}}, "CAMRY_REGEN_COOPERATION": {"name": "Regen cooperation", "unit": "offon", "header": "7B0", "pid": {"21": "58"}}, "CAMRY_TRC_TRAC_CTRL": {"name": "Traction control, status", "unit": "offon", "header": "7B0", "pid": {"21": "5A"}}, "CAMRY_TRC_TRAC_ENGINE_CTRL": {"name": "Traction control, engine status", "unit": "offon", "header": "7B0", "pid": {"21": "5A"}}, "CAMRY_TRC_TRAC_BRAKE_CTRL": {"name": "Traction control, brake status", "unit": "offon", "header": "7B0", "pid": {"21": "5A"}}, "CAMRY_FR_WHEEL_VSC_CTRL": {"name": "Front right wheel vehicle stability control status", "unit": "offon", "header": "7B0", "pid": {"21": "5A"}}, "CAMRY_FL_WHEEL_VSC_CTRL": {"name": "Front left wheel vehicle stability control status", "unit": "offon", "header": "7B0", "pid": {"21": "5A"}}, "CAMRY_RR_WHEEL_VSC_CTRL": {"name": "Rear right wheel vehicle stability control status", "unit": "offon", "header": "7B0", "pid": {"21": "5A"}}, "CAMRY_RL_WHEEL_VSC_CTRL": {"name": "Rear left wheel vehicle stability control status", "unit": "offon", "header": "7B0", "pid": {"21": "5A"}}, "CAMRY_FR_WHEEL_ABS_CTRL": {"name": "Front right wheel ABS status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_FL_WHEEL_ABS_CTRL": {"name": "Front left wheel ABS status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_RR_WHEEL_ABS_CTRL": {"name": "Rear right wheel ABS status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_RL_WHEEL_ABS_CTRL": {"name": "Rear left wheel ABS status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_RR_WHEEL_EBD_CTRL": {"name": "Rear right wheel electronic brake force distribution status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_RL_WHEEL_EBD_CTRL": {"name": "Rear left wheel electronic brake force distribution status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_BA_CTRL": {"name": "Brake assist status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_PBA_CTRL": {"name": "Predictive brake assist status", "unit": "offon", "header": "7B0", "pid": {"21": "5F"}}, "CAMRY_ZERO_POINT_OF_YAW_RATE": {"name": "Zero point of yaw rate", "unit": "scalar", "header": "7B0", "pid": {"21": "A1"}}, "CAMRY_SLA_SOLENOID_CURRENT": {"name": "Main relay a, solenoid current", "unit": "milliamps", "header": "7B0", "pid": {"21": "A3"}}, "CAMRY_SLR_SOLENOID_CURRENT": {"name": "Main relay r solenoid current", "unit": "milliamps", "header": "7B0", "pid": {"21": "A3"}}, "CAMRY_SSC_SOLENOID_CURRENT": {"name": "Service contactor solenoid current", "unit": "milliamps", "header": "7B0", "pid": {"21": "A3"}}, "CAMRY_SCC_SOLENOID_CURRENT": {"name": "Charge contactor current", "unit": "milliamps", "header": "7B0", "pid": {"21": "A3"}}, "CAMRY_SMC_SOLENOID_CURRENT": {"name": "Main connector solenoid current", "unit": "milliamps", "header": "7B0", "pid": {"21": "A3"}}, "CAMRY_SRC_SOLENOID_CURRENT": {"name": "Relay control solenoid current", "unit": "milliamps", "header": "7B0", "pid": {"21": "A3"}}, "CAMRY_INSPECTION_MODE": {"name": "Inspection mode", "unit": "offon", "header": "7B0", "pid": {"21": "A6"}}, "CAMRY_FR_WHEEL_SPEED_OPEN": {"name": "Front right wheel speed open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_FL_WHEEL_SPEED_OPEN": {"name": "Front left wheel speed open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_RR_WHEEL_SPEED_OPEN": {"name": "Rear right wheel speed open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_RL_WHEEL_SPEED_OPEN": {"name": "Rear left wheel speed open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_YAW_RATE_OPEN": {"name": "Yaw rate open error?", "unit": "noyes", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_DECELERATION_OPEN": {"name": "Deceleration open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_MASTER_CYLINDER_OPEN": {"name": "Master cylinder open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_STROKE_OPEN": {"name": "Stroke open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_FR_WHEEL_CYLINDER_OPEN": {"name": "Front right wheel cylinder open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_ACCUMULATOR_OPEN": {"name": "Accumulator open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_HV_COMMUNICATION_OPEN": {"name": "HV communication open", "unit": "offon", "header": "7B0", "pid": {"21": "BE"}}, "CAMRY_TAIL_CANCEL_LIGHT": {"name": "Tail cancel SW", "unit": "offon", "header": "7C0", "pid": {"21": "12"}}, "CAMRY_P_SEATBELT_BUCKLE_LIGHT": {"name": "P-seatbelt buckle SW", "unit": "offon", "header": "7C0", "pid": {"21": "12"}}, "CAMRY_CHECK_ENGINE_LIGHT": {"name": "Check engine SW", "unit": "offon", "header": "7C0", "pid": {"21": "12"}}, "CAMRY_EOP_LIGHT": {"name": "Oil pressure switch", "unit": "offon", "header": "7C0", "pid": {"21": "12"}}, "CAMRY_BAT_V": {"name": "Battery voltage", "unit": "volts", "header": "7C0", "pid": {"21": "13"}}, "CAMRY_VSS": {"name": "Speed", "unit": "kilometersPerHour", "header": "7C0", "pid": {"21": "21"}}, "CAMRY_ECT_7C0": {"name": "Engine coolant temperature", "unit": "celsius", "header": "7C0", "pid": {"21": "23"}}, "CAMRY_FUEL_INPUT": {"name": "Fuel input", "unit": "liters", "header": "7C0", "pid": {"21": "29"}}, "CAMRY_OIL_CHANGE_ODO": {"name": "Distance since oil change", "unit": "kilometers", "header": "7C0", "pid": {"21": "41"}}, "CAMRY_RHEOSTAT": {"name": "Rheostat", "unit": "scalar", "header": "7C0", "pid": {"21": "68"}}, "CAMRY_KEY_REMIND_SOUND": {"name": "Key remind sound", "unit": "scalar", "header": "7C0", "pid": {"21": "A1"}}, "CAMRY_SEAT_BELT_BEEP_DRIVER": {"name": "Seat belt beep, driver", "unit": "offon", "header": "7C0", "pid": {"21": "A7"}}, "CAMRY_SEAT_BELT_BEEP_PASSENGER": {"name": "Seat belt beep, passenger", "unit": "offon", "header": "7C0", "pid": {"21": "A7"}}, "CAMRY_SEAT_BELT_BEEP_REMINDER": {"name": "Seat belt beep, reminder", "unit": "offon", "header": "7C0", "pid": {"21": "A7"}}, "CAMRY_REVERSE_BEEP": {"name": "Reverse beep", "unit": "onoff", "header": "7C0", "pid": {"21": "AC"}}, "CAMRY_FUEL_LEVEL": {"name": "Fuel level", "unit": "liters", "header": "7C0", "pid": {"22": "1022"}}, "CAMRY_CABIN_T": {"name": "Cabin temperature", "unit": "celsius", "header": "7C4", "pid": {"21": "21"}}, "CAMRY_AAT_7C4": {"name": "Ambient air temperature", "unit": "celsius", "header": "7C4", "pid": {"21": "22"}}, "CAMRY_SOLAR_DRIVER": {"name": "Solar sensor, driver side", "unit": "scalar", "header": "7C4", "pid": {"21": "24"}}, "CAMRY_ECT": {"name": "Engine coolant temperature", "unit": "celsius", "header": "7C4", "pid": {"21": "26"}}, "CAMRY_T_DRIVER": {"name": "Set temperature, driver side", "unit": "celsius", "header": "7C4", "pid": {"21": "29"}}, "CAMRY_BLOWER_MOTOR_SPEED_LEVEL": {"name": "Blower motor speed level", "unit": "scalar", "header": "7C4", "pid": {"21": "3C"}}, "CAMRY_ADJUSTED_AMBIENT_T": {"name": "Adjusted ambient temperature", "unit": "celsius", "header": "7C4", "pid": {"21": "3D"}}, "CAMRY_AIR_OUTLET_SERVO_PULSE_D": {"name": "Air outlet servo pulse, driver", "unit": "scalar", "header": "7C4", "pid": {"21": "43"}}, "CAMRY_AIR_OUTLET_SERVO_ACTU_PULSE_D": {"name": "Air outlet servo actual pulse, driver", "unit": "scalar", "header": "7C4", "pid": {"21": "43"}}, "CAMRY_AIR_INLET_DAMPER_TARGET_PULSE": {"name": "Air inlet damper target pulse", "unit": "scalar", "header": "7C4", "pid": {"21": "44"}}, "CAMRY_AIR_INLET_DAMPER_ACTUAL_PULSE": {"name": "Air inlet damper actual pulse", "unit": "scalar", "header": "7C4", "pid": {"21": "44"}}, "CAMRY_EVAP_FIN_THERMISTOR": {"name": "Evaporator fin thermistor", "unit": "celsius", "header": "7C4", "pid": {"21": "4B"}}, "CAMRY_EVAPORATOR_TARGET_TEMP": {"name": "Evaporator target temperature", "unit": "scalar", "header": "7C4", "pid": {"21": "4C"}}, "CAMRY_REGULATOR_P": {"name": "Regulator pressure sensor", "unit": "scalar", "header": "7C4", "pid": {"21": "53"}}, "CAMRY_PARKING_BRAKE_2": {"name": "Parking brake", "unit": "offon", "header": "7D0", "pid": {"21": "62"}}, "CAMRY_ATF_T": {"name": "Automatic transmission fluid temperature", "unit": "celsius", "header": "7E0", "pid": {"01": "B4"}}, "CAMRY_CALCULATED_LOAD_7E0": {"name": "Calculated load_7e0", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_VEHICLE_LOAD": {"name": "Vehicle load", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_MAF": {"name": "Mass air flow", "unit": "gramsPerSecond", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_MAP": {"name": "Manifold absolute pressure", "unit": "kilopascal", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_INTAKE_AIR": {"name": "Intake air", "unit": "celsius", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_AAT": {"name": "Ambient temperature", "unit": "celsius", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_ATMOSPHERE_PRESSURE": {"name": "Atmosphere pressure", "unit": "kilopascal", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_COOLANT_TEMP": {"name": "Coolant temp", "unit": "celsius", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_ENGINE_SPEED": {"name": "Engine speed", "unit": "rpm", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_VEHICLE_SPEED": {"name": "Vehicle speed", "unit": "kilometersPerHour", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_ENGINE_RUN_TIME": {"name": "Engine run time", "unit": "seconds", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_THROTTLE_SENSOR_POSITION": {"name": "Throttle sensor position", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_THROTTLE_SENSOR_VOLT": {"name": "Throttle sensor volt %, 1", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_THROTTL_SENSOR_2_VOLT": {"name": "Throttle sensor volt %, 2", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_ACCEL_SENS_NO_1_VOLT": {"name": "Accelerator sensor volt %, 1", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_ACCEL_SENS_NO_2_VOLT": {"name": "Accelerator sensor volt %, 2", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_THROTTLE_MOTOR_DUTY": {"name": "Throttle motor DUTY", "unit": "percent", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_WARMUP_CYCLE_CLEARED_DTC": {"name": "Warm-up cycle cleared DTC", "unit": "scalar", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_TIME_AFTER_DTC_CLEARED": {"name": "Time after DTC cleared", "unit": "minutes", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_BATTERY_VOLTAGE": {"name": "Battery voltage", "unit": "volts", "header": "7E0", "pid": {"21": "01"}}, "CAMRY_SHORT_FT_B1S1": {"name": "Short FT B1S1", "unit": "percent", "header": "7E0", "pid": {"21": "03"}}, "CAMRY_LONG_FT_B1S1": {"name": "Long FT B1S1", "unit": "percent", "header": "7E0", "pid": {"21": "03"}}, "CAMRY_IGN_ADVANCE": {"name": "Ignition advance", "unit": "degrees", "header": "7E0", "pid": {"21": "03"}}, "CAMRY_EVAP_PURGE_DUTY": {"name": "EVAP purge duty", "unit": "percent", "header": "7E0", "pid": {"21": "03"}}, "CAMRY_TARGET_AIR_FUEL_RATIO": {"name": "Target air-fuel ratio", "unit": "scalar", "header": "7E0", "pid": {"21": "04"}}, "CAMRY_AF_LAMBDA_B1S1": {"name": "AF lambda, bank 1 sensor 1", "unit": "scalar", "header": "7E0", "pid": {"21": "04"}}, "CAMRY_AFS_VOLTAGE_B1S1": {"name": "Air fuel sensor voltage, bank 1 sensor 1", "unit": "volts", "header": "7E0", "pid": {"21": "04"}}, "CAMRY_AFS_CURRENT_B1S1": {"name": "Air fuel sensor current, bank 1 sensor 1", "unit": "milliamps", "header": "7E0", "pid": {"21": "04"}}, "CAMRY_O2S_B1S2": {"name": "O2S, bank 1 sensor 2", "unit": "volts", "header": "7E0", "pid": {"21": "04"}}, "CAMRY_CATALYST_T_B1S1": {"name": "Catalyst temperature B1S1", "unit": "celsius", "header": "7E0", "pid": {"21": "05"}}, "CAMRY_CATALYST_T_B1S2": {"name": "Catalyst temperature B1S2", "unit": "celsius", "header": "7E0", "pid": {"21": "05"}}, "CAMRY_MIL": {"name": "MIL", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_NUMBER_OF_EMISSION_DTC": {"name": "Number of emission DTC", "unit": "scalar", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_COMPLETE_PARTS_MONITOR_AVAIL": {"name": "Complete parts monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_FUEL_SYSTEM_MONITOR_AVAIL": {"name": "Fuel system monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_MISFIRE_MONITOR_AVAIL": {"name": "Misfire monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_EGR_VVT_MONITOR_AVAIL": {"name": "EGR/VVT monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_O2S_A_FS_HEATER_MONITOR_AVAIL": {"name": "O2S heater monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_O2S_A_FS_MONITOR_AVAIL": {"name": "O2S monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_A_C_MONITOR_AVAIL": {"name": "A/C monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_2ND_AIR_MONITOR_AVAIL": {"name": "2nd air monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_EVAP_MONITOR_AVAIL": {"name": "EVAP monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_HEATED_CATALYST_MONITOR_AVAIL": {"name": "Heated catalyst monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_CATALYST_MONITOR_AVAIL": {"name": "Catalyst monitor_avail", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_EGR_VVT_MONITOR_INCMPL": {"name": "EGR/VVT monitor_incmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_O2S_A_FS_HEATER_MONITOR_INCMPL": {"name": "O2S heater monitor_incmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_O2S_A_FS_MONITOR_INCMPL": {"name": "O2S monitor_incmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_A_C_MONITOR_INCMPL": {"name": "A/C monitor_incmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_2ND_AIR_MONITOR_INCMPL": {"name": "2nd air monitor_incmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_EVAP_MONITOR_ICMPL": {"name": "EVAP monitor_icmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_HEATED_CATALYST_MONITOR_INCMPL": {"name": "Heated catalyst monitor_incmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_CATALYST_MONITOR_INCMPL": {"name": "Catalyst monitor_incmpl", "unit": "offon", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_MILON_RUN_DISTANCE": {"name": "MIL ON run distance", "unit": "kilometers", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_RUNNING_TIME_FROM_MIL_ON": {"name": "Running time from MIL ON", "unit": "minutes", "header": "7E0", "pid": {"21": "06"}}, "CAMRY_CC_S": {"name": "Cruise control speed", "unit": "kilometersPerHour", "header": "7E0", "pid": {"21": "21"}}, "CAMRY_COMMUNICATION_WITH_HV": {"name": "Communication with HV", "unit": "offon", "header": "7E0", "pid": {"21": "24"}}, "CAMRY_COMMUNICATION_WITH_BRAKE": {"name": "Communication with brake", "unit": "offon", "header": "7E0", "pid": {"21": "24"}}, "CAMRY_COMM_WITH_AIR_CONDITIONER": {"name": "Communication with air conditioner", "unit": "offon", "header": "7E0", "pid": {"21": "24"}}, "CAMRY_COMM_WITH_VALVEMATIC_COMM": {"name": "Communication with valvematic", "unit": "scalar", "header": "7E0", "pid": {"21": "24"}}, "CAMRY_POWER_STEERING_SIGNAL": {"name": "Power steering", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_STOP_LIGHT_SWITCH": {"name": "Stop light", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_CRUISE_CONTROL_LIVE_BRAKE_CANCEL_SWITCH": {"name": "Cruise control live brake cancel", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_STARTER_SIGNAL": {"name": "Starter signal", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_STARTER_CONTROL": {"name": "Starter control", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_ELECTRICAL_LOAD_SIGNAL_1": {"name": "Electrical load signal 1", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_ELECTRICAL_LOAD_SIGNAL_2": {"name": "Electrical load signal 2", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_SHIFT_SW_STATUS_P_RANGE": {"name": "Shift SW status, parking", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_SHIFT_SW_STATUS_R_RANGE": {"name": "Shift SW status, reverse", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_SHIFT_SW_STATUS_N_RANGE": {"name": "Shift SW status, neutral", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_SHIFT_SW_STATUS_D_RANGE": {"name": "Shift SW status, drive", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_SPORTS_MODE_SELECTION_SW": {"name": "Sports mode selection", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_SPORTS_SHIFT_UP_SW": {"name": "Sports shift up", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_SPORTS_SHIFT_DOWN_SW": {"name": "Sports shift down", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_PATTERN_SWITCH_PWR_M": {"name": "Pattern switch", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_NEUTRAL_POSITION_SW_SIGNAL": {"name": "Neutral position", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_TC_TERMINAL": {"name": "TC", "unit": "scalar", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_A_C_COMPRESSOR": {"name": "A/C compressor", "unit": "offon", "header": "7E0", "pid": {"21": "25"}}, "CAMRY_ODO_7E0": {"name": "Odometer", "unit": "kilometers", "header": "7E0", "pid": {"21": "28"}}, "CAMRY_MISFIRE_RPM_V2": {"name": "Misfire RPM", "unit": "rpm", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_MISFIRE_LOAD_V2": {"name": "Misfire load", "unit": "scalar", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_CYL1_MISFIRE_CNT": {"name": "Cylinder #1 misfire count", "unit": "scalar", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_CYL2_MISFIRE_CNT": {"name": "Cylinder #2 misfire count", "unit": "scalar", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_CYL3_MISFIRE_CNT": {"name": "Cylinder #3 misfire count", "unit": "scalar", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_CYL4_MISFIRE_CNT": {"name": "Cylinder #4 misfire count", "unit": "scalar", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_ALL_CYLINDERS_MISFIRE_CNT": {"name": "All cylinders misfire count", "unit": "scalar", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_IGNITION_TRIG_CNT": {"name": "Ignition trigger count", "unit": "scalar", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_MISFIRE_MARGIN_V2": {"name": "Misfire margin", "unit": "percent", "header": "7E0", "pid": {"21": "45"}}, "CAMRY_ENG_START_T": {"name": "Engine starting time", "unit": "milliseconds", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ENG_SPD_START_OFF": {"name": "Engine speed, starter off", "unit": "rpm", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_IMMOB_FUEL_CUT": {"name": "Immobilizer fuel cut", "unit": "offon", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_STARTER_CNT": {"name": "Starter count", "unit": "scalar", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_PREV_TRIP_DST": {"name": "Previous trip distance", "unit": "kilometers", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_VVTOT": {"name": "Variable valve timing oil temperature", "unit": "celsius", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_PREV_TRIP_IAT": {"name": "Intake air temperature, previous trip", "unit": "celsius", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_EOT_V3": {"name": "Engine oil temperature", "unit": "celsius", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_PREV_TRIP_EOT": {"name": "Engine oil temperature, previous trip", "unit": "celsius", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_AC_AMB_T": {"name": "Ambient temperature for A/C", "unit": "celsius", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_PREV_TRIP_AMB_T": {"name": "Ambient temperature, previous trip", "unit": "celsius", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_TPS": {"name": "Throttle position", "unit": "degrees", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ISC_FLOW": {"name": "Idle speed control flow", "unit": "scalar", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ISC_POS": {"name": "Idle speed control position", "unit": "degrees", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ISC_FB": {"name": "Idle speed control feedback", "unit": "scalar", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ISC_LEARN": {"name": "Idle speed control learning value", "unit": "scalar", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ELEC_LOAD_FB": {"name": "Electric load feedback", "unit": "scalar", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_AC_FB": {"name": "Air conditioner feedback", "unit": "scalar", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_N_RANGE_STS": {"name": "Neutral range status", "unit": "offon", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_NEUTRAL_CTRL": {"name": "Neutral control", "unit": "offon", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_LOW_RPM_CTRL": {"name": "Low revolution control", "unit": "offon", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_VVT_ADV_FAIL": {"name": "Variable valve timing advance fail", "unit": "offon", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_LOW_RPM_START": {"name": "Low revolution for engine start", "unit": "offon", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ENG_START_HESIT": {"name": "Engine start hesitation", "unit": "offon", "header": "7E0", "pid": {"21": "51"}}, "CAMRY_ATF_PAN_T": {"name": "Transmission temperature, pan", "unit": "celsius", "header": "7E0", "pid": {"21": "82"}}, "CAMRY_ATF_TQC_T": {"name": "Transmission temperature, torque converter", "unit": "celsius", "header": "7E0", "pid": {"21": "82"}}, "CAMRY_GEAR_V2": {"name": "Gear, variant", "unit": "scalar", "header": "7E0", "pid": {"21": "85"}}, "CAMRY_TORQUE_CONVERTER_LOCKUP": {"name": "Torque converter lockup", "unit": "offon", "header": "7E0", "pid": {"21": "85"}}, "CAMRY_GEAR_V3": {"name": "Current gear", "unit": "scalar", "header": "7E0", "pid": {"21": "DA"}}}, "pid_repo": "Toyota-Camry"};
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function clearScreen() {
+  const el = document.getElementById('screen');
+  el.innerHTML = '';
+  return el;
+}
+
+function similarity(a, b) {
+  const wa = new Set(a.toLowerCase().split(/\W+/).filter(Boolean));
+  const wb = new Set(b.toLowerCase().split(/\W+/).filter(Boolean));
+  if (wa.size === 0 || wb.size === 0) return 0;
+  let common = 0;
+  wa.forEach(w => { if (wb.has(w)) common++; });
+  return common / Math.max(wa.size, wb.size);
+}
+
+function matchPidForCheck(checkText) {
+  const signals = DATA.pid_signals || {};
+  const ids = Object.keys(signals);
+  if (ids.length === 0) return null;
+  let best = null, bestScore = 0;
+  ids.forEach(id => {
+    const score = similarity(checkText, signals[id].name);
+    if (score > bestScore) { bestScore = score; best = id; }
+  });
+  if (bestScore < 0.34) return null;
+  const info = signals[best];
+  return `Live PID match: <b>${escapeHtml(info.name)}</b> - cmd ${escapeHtml(JSON.stringify(info.pid))} @ header ${escapeHtml(info.header)} (${escapeHtml(info.unit)})`;
+}
+
+function appendSearchHelper(el, resultText) {
+  const query = encodeURIComponent(`${DATA.vehicle.year} ${DATA.vehicle.make} ${DATA.vehicle.model} ${resultText}`);
+  const link = document.createElement('a');
+  link.href = `https://www.google.com/search?q=${query}`;
+  link.target = '_blank';
+  link.className = 'search-link';
+  link.textContent = 'Repair Guide Search \u{1F50D}';
+  el.appendChild(link);
+
+  const restart = document.createElement('button');
+  restart.className = 'btn btn-success';
+  restart.textContent = 'Start New Triage';
+  restart.addEventListener('click', showInitialPrompt);
+  el.appendChild(restart);
+}
+
+function renderNode(node) {
+  if (typeof node === 'string') { renderConclusion(node); return; }
+  if (node.tests) { renderTests(node); return; }
+  renderQuestion(node);
+}
+
+function renderQuestion(node) {
+  const el = clearScreen();
+  const q = document.createElement('div');
+  q.className = 'box neutral';
+  q.innerHTML = `<b>${escapeHtml(node.question || 'Select an option:')}</b>`;
+  el.appendChild(q);
+
+  const row = document.createElement('div');
+  row.className = 'btnrow';
+  const options = node.options || node;
+  Object.entries(options).forEach(([opt, child]) => {
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = opt;
+    btn.addEventListener('click', () => renderNode(child));
+    row.appendChild(btn);
+  });
+  el.appendChild(row);
+}
+
+function renderTests(node) {
+  const el = clearScreen();
+  const title = document.createElement('h3');
+  title.style.color = '#0d6efd';
+  title.textContent = 'Diagnosis Stage: ' + (node.diagnosis || 'Step');
+  el.appendChild(title);
+
+  node.tests.forEach(test => {
+    const box = document.createElement('div');
+    box.className = 'testbox';
+    const pidNote = matchPidForCheck(test.check);
+    box.innerHTML = `<b>${escapeHtml(test.check)}</b>: ${escapeHtml(test.instruction)}` +
+      (pidNote ? `<div class="pidnote">${pidNote}</div>` : '');
+
+    const row = document.createElement('div');
+    row.className = 'btnrow';
+    Object.entries(test.options).forEach(([opt, result]) => {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-info';
+      btn.textContent = opt;
+      btn.addEventListener('click', () => renderNode(result));
+      row.appendChild(btn);
+    });
+    box.appendChild(row);
+    el.appendChild(box);
+  });
+}
+
+function renderConclusion(text) {
+  const el = clearScreen();
+  const box = document.createElement('div');
+  box.className = 'box success';
+  box.textContent = text;
+  el.appendChild(box);
+  appendSearchHelper(el, text);
+}
+
+function lookupCode(rawCode) {
+  const code = (rawCode || '').toUpperCase().trim();
+  const res = DATA.obd_database[code];
+  const el = clearScreen();
+  if (res) {
+    const box = document.createElement('div');
+    box.className = 'box success';
+    box.innerHTML = `<b>${escapeHtml(code)}:</b> ${escapeHtml(res.desc)}`;
+    el.appendChild(box);
+    appendSearchHelper(el, `${code} ${res.desc}`);
+  } else {
+    const box = document.createElement('div');
+    box.className = 'box danger';
+    box.textContent = 'Code not found. Describe the symptoms instead below.';
+    el.appendChild(box);
+    renderSymptomPromptInto(el);
+  }
+}
+
+function renderSymptomPromptInto(el) {
+  const label = document.createElement('div');
+  label.innerHTML = '<b>Describe the issue:</b>';
+  el.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'e.g., car stumbles';
+  input.className = 'text-input';
+  el.appendChild(input);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-primary';
+  btn.textContent = 'Analyze';
+  btn.addEventListener('click', () => analyzeSymptoms(input.value));
+  el.appendChild(btn);
+
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') analyzeSymptoms(input.value); });
+  input.focus();
+}
+
+function renderSymptomPrompt() {
+  renderSymptomPromptInto(clearScreen());
+}
+
+function analyzeSymptoms(rawText) {
+  const text = (rawText || '').toLowerCase();
+  let node;
+  if (['stumble', 'hesitat', 'gas', 'stall'].some(k => text.includes(k))) {
+    node = DATA.diagnostic_tree.Engine.options['Performance Issue'].options['Hesitation/Stumbling'];
+  } else if (['overheat', 'hot', 'temperature'].some(k => text.includes(k))) {
+    node = DATA.diagnostic_tree.Engine.options['Performance Issue'].options['Overheating'];
+  } else {
+    node = DATA.diagnostic_tree;
+  }
+  renderNode(node);
+}
+
+function showPidReference() {
+  const el = clearScreen();
+  const heading = document.createElement('h3');
+  heading.textContent = `Diagnostic for ${DATA.vehicle.year} ${DATA.vehicle.make} ${DATA.vehicle.model}`;
+  el.appendChild(heading);
+
+  const signals = DATA.pid_signals || {};
+  const ids = Object.keys(signals);
+
+  if (ids.length === 0) {
+    const box = document.createElement('div');
+    box.className = 'box warning';
+    box.innerHTML = `No OBDb repository was found for '<b>${escapeHtml(DATA.vehicle.make)} ${escapeHtml(DATA.vehicle.model)}</b>' when this file was generated. Coverage is community-contributed, so older or less common vehicles often aren't in there yet. Browse <a href="https://github.com/OBDb" target="_blank">github.com/OBDb</a> to check, or rerun the Colab cell after requesting the repo.`;
+    el.appendChild(box);
+  } else {
+    const summary = document.createElement('div');
+    summary.className = 'box success';
+    summary.innerHTML = `Loaded <b>${ids.length}</b> signals from OBDb repo <a href="https://github.com/OBDb/${escapeHtml(DATA.pid_repo)}" target="_blank">${escapeHtml(DATA.pid_repo)}</a> (embedded when this file was generated). These are live PIDs for a real scan tool/ELM327 adapter - matching test steps in the decision tree show the exact PID to query.`;
+    el.appendChild(summary);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    let rows = '';
+    ids.slice(0, 200).forEach(id => {
+      const s = signals[id];
+      rows += `<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(id)}</td><td>${escapeHtml(s.header)}</td><td>${escapeHtml(JSON.stringify(s.pid))}</td><td>${escapeHtml(s.unit)}</td></tr>`;
+    });
+    wrap.innerHTML = `<table><tr><th>Signal</th><th>ID</th><th>Header</th><th>Cmd</th><th>Unit</th></tr>${rows}</table>`;
+    el.appendChild(wrap);
+  }
+
+  const back = document.createElement('button');
+  back.className = 'btn btn-success';
+  back.textContent = 'Back';
+  back.addEventListener('click', showInitialPrompt);
+  el.appendChild(back);
+}
+
+function showInitialPrompt() {
+  const el = clearScreen();
+  const heading = document.createElement('h3');
+  heading.textContent = `Diagnostic for ${DATA.vehicle.year} ${DATA.vehicle.make} ${DATA.vehicle.model}`;
+  el.appendChild(heading);
+
+  const prompt = document.createElement('div');
+  prompt.innerHTML = "<b>Do you have a code, want to describe the issue, or look up this vehicle's live sensor PIDs?</b>";
+  el.appendChild(prompt);
+
+  const row = document.createElement('div');
+  row.className = 'btnrow';
+
+  const codeInput = document.createElement('input');
+  codeInput.type = 'text';
+  codeInput.placeholder = 'Enter OBD-II Code';
+  codeInput.className = 'text-input';
+  row.appendChild(codeInput);
+
+  const lookupBtn = document.createElement('button');
+  lookupBtn.className = 'btn btn-info';
+  lookupBtn.textContent = 'Lookup Code';
+  lookupBtn.addEventListener('click', () => lookupCode(codeInput.value));
+  row.appendChild(lookupBtn);
+  codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(codeInput.value); });
+
+  const descBtn = document.createElement('button');
+  descBtn.className = 'btn btn-warning';
+  descBtn.textContent = 'Describe Symptoms';
+  descBtn.addEventListener('click', renderSymptomPrompt);
+  row.appendChild(descBtn);
+
+  const pidBtn = document.createElement('button');
+  pidBtn.className = 'btn';
+  pidBtn.textContent = 'Live PID Reference (OBDb)';
+  pidBtn.addEventListener('click', showPidReference);
+  row.appendChild(pidBtn);
+
+  el.appendChild(row);
+}
+
+showInitialPrompt();
+</script>
+</body>
+</html>
