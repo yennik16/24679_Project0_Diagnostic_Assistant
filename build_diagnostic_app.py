@@ -1,26 +1,3 @@
-"""
-Run this in Colab (or any Python 3 environment) to build the standalone
-diagnostic app.
-
-What's new in this version:
-  - Vehicle selection is back, and lives INSIDE the app itself: a "Change
-    Vehicle" screen lets you type a make/model/year and the app fetches
-    that vehicle's OBDb live-PID data directly from the browser via
-    fetch() - no need to regenerate the file through Python anymore.
-    (This only works when the page is served over http(s) - e.g. GitHub
-    Pages - because browsers block fetch() from a double-clicked local
-    file. If you open it as a local file, the rest of the app still
-    works fine; only the live PID fetch is skipped, with a clear message
-    explaining why.)
-  - The decision tree is much deeper: Engine (Starting Issues + four
-    Performance Issue branches), Brakes & Steering (Brake Pedal + Steering
-    Wheel), and Electrical & Lights (three sub-branches), each walking
-    through several rounds of concrete tests before reaching a specific
-    root cause - not a one-step guess.
-  - You can still optionally pre-bake a default vehicle here in Python
-    (handy for an offline demo); leave the prompts blank to skip that and
-    have the app open straight to the vehicle-selection screen.
-"""
 
 import re
 import json
@@ -1531,3 +1508,47 @@ if __name__ == "__main__":
         print("Download started - open the file once it lands in your Downloads folder.")
     except ImportError:
         print(f"Not running in Colab - open {fname} directly in your browser.")
+
+
+
+
+
+
+
+"""
+USE OF AI:
+I vibecoded this program as discussed in the class. I started on google colab hence the commits here being 
+fairly limited as I had never used github but decided to switch based on lecture/running into issues with the gui.
+
+To start I just used the built in colab AI assistant prompting it with a modified version of my project 0 idea:
+make an automotive diagnostic assistant which could be used to predict the cause of car troubles. 
+This could help provide a list of things for the user to check themselves, or provide them with a better 
+baseline idea of the issue before bringing it to a mechanic. A user will interact with the system by describing 
+the issue through a gui and then answering a series of (dynamic) questions, allowing the system to zero in on 
+a likely diagnosis. you may need to use a dataset of automotive issues and their causes, a decision tree, a 
+model to interpret user answers, and Python to code it.
+
+I then reviewed its output and prompted: 
+make a much more in depth decision tree. is there an automotive code database that can be incorporated?
+
+I was not satisfied with the results of this so I found a github database with a list of obd codes myself and 
+prompted it to implement https://github.com/obdb
+
+I then prompted it about 10 times with the output of various different tests asking it to continue with a decision 
+tree when I felt it stopped with too broad a solution, asked it to implement a feature that would search for online
+repair guides when the final issue was found, and fixing various bugs and issues. I also prompted it to start by asking
+for a trouble code. I then prompted it to allow for a text description of symptoms rather than relying entirely on generic
+buttons. I then prompted it several more times to fix errors, try and improve the depth of diagnosis, and get it to properly 
+use the github database I had found. 
+
+I hit a roadblock asking it to create a popout gui rather than one at the bottom of the 
+code where it would just compile indefinitely. At this point I switched to claude to further refine it.
+I prompted claude to fix the popout gui with notes on what I wanted the flow/appearance to be like. The popout still
+would not work however and there was a consistent issue with buttons needing to be clicked multiple times before
+text boxes or the next thing would appear. It identified it as a colab issue which is when I switched to github, having it 
+generate the initial commit. The rest of the commits also used Claude, limited by its usage limits. I asked it to add the
+confidence ranked symptom classification to improve intelligence and prompted it further to improve the decision tree so that
+it continued until a single problem was identified, instead of terminating with a short list of possible issues. Comments, 
+rewriting of the readme, etc. past the third commit were done manually by me
+"""
+
