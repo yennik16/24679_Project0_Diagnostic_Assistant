@@ -9,7 +9,7 @@ of an issue, without a code. It allows the user to describe their problem in pla
 at which point it is able to match the corresponding node in the decision tree to begin
 asking additional questions. Several nodes feature simple tests, for which the corresponding
 PID is provided. Once a final diagnosis is reached, the user has the option to automatically 
-search google for a repair guide.
+search google for a repair guide or replacement parts.
 
 ## How to use it
 There are no required dependencies, just install automotive_diagnostic_tool.html and run it
