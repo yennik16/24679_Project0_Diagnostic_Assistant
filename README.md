@@ -13,7 +13,8 @@ search google for a repair guide.
 
 ## How to use it
 There are no required dependencies, just install automotive_diagnostic_tool.html and run it
-in a browser.
+in a browser. The other files are artifacts from previous versions, and were consolidated into
+automotive_diagnostic_tool.html
 
 ## How the plain text description works
 
