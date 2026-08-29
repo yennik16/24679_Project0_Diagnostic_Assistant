@@ -5,9 +5,19 @@ This is a static reference table of common trouble codes and is
 independent of the OBDb live-PID data pulled in build_diagnostic_app.py -
 DTCs (P0300, P0420, ...) are fault-history codes; OBDb signals are live
 sensor readings. See the README for the distinction.
+
+Each code maps to the desc key with the accompanying text about the likely cause.
+index.htmls lookupCode() function expects one of these codes
+These codes are what a standard OBD2 automotive scanner would spit out when reading
+a check engine light or similar for the underlying fault code causing it
 """
 
 OBD_CODES = {
+    #library of generic codes. Not vehicle specific like the PID codes from the github I found but should
+    #suffice for my purposes.
+    #P01xx are fuel and air related, P03xx are ignition related, P04xx are emission related, P05xx are misc,
+    #and P07xx are transmission related. These serve to make up the quickest diagnostic functionality,
+    #rather than the more in depth and intelligent decision tree based diagnostics
     "P0100": {"desc": "Mass or Volume Air Flow Circuit Malfunction. Likely causes: dirty/failing MAF sensor, torn intake ducting, or a wiring fault at the MAF connector."},
     "P0101": {"desc": "MAF Circuit Range/Performance Problem. Likely causes: dirty MAF element, a vacuum leak downstream of the MAF, or aftermarket intake miscalibration."},
     "P0113": {"desc": "Intake Air Temperature Sensor 1 Circuit High. Likely causes: open circuit, corroded connector, or a failed IAT sensor."},
