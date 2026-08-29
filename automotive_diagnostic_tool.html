@@ -91,18 +91,25 @@
 // ============================================================
 
 // ============================================================
-// 1. OBD_DATABASE - local trouble code (DTC) reference table
+// Local OBD-II diagnostic trouble code (DTC) database.
 //
-// Static data, independent of the OBDb live-PID data below - DTCs
-// (P0300, P0420, ...) are fault-history codes; OBDb signals are live
-// sensor readings, a completely different thing. Each code maps to a
-// dict with a single "desc" key (description + likely causes) - kept
-// intentionally flat since lookupCode() below only ever needs one string
-// per code. Grouped by SAE-standardized code range purely so the ~30
-// entries are scannable, not because the code cares about the grouping.
+// This is a static reference table of common trouble codes and is
+// independent of the OBDb live-PID data used elsewhere in this file -
+// DTCs (P0300, P0420, ...) are fault-history codes; OBDb signals are live
+// sensor readings. See the README for the distinction.
+//
+// Each code maps to the desc key with the accompanying text about the likely cause.
+// lookupCode() below expects one of these codes.
+// These codes are what a standard OBD2 automotive scanner would spit out when reading
+// a check engine light or similar for the underlying fault code causing it
 // ============================================================
 
 const OBD_DATABASE = {
+    // library of generic codes. Not vehicle specific like the PID codes from the github I found but should
+    // suffice for my purposes.
+    // P01xx are fuel and air related, P03xx are ignition related, P04xx are emission related, P05xx are misc,
+    // and P07xx are transmission related. These serve to make up the quickest diagnostic functionality,
+    // rather than the more in depth and intelligent decision tree based diagnostics
     "P0100": {"desc": "Mass or Volume Air Flow Circuit Malfunction. Likely causes: dirty/failing MAF sensor, torn intake ducting, or a wiring fault at the MAF connector."},
     "P0101": {"desc": "MAF Circuit Range/Performance Problem. Likely causes: dirty MAF element, a vacuum leak downstream of the MAF, or aftermarket intake miscalibration."},
     "P0113": {"desc": "Intake Air Temperature Sensor 1 Circuit High. Likely causes: open circuit, corroded connector, or a failed IAT sensor."},
@@ -111,8 +118,6 @@ const OBD_DATABASE = {
     "P0171": {"desc": "System Too Lean (Bank 1). Likely causes: vacuum leak, dirty MAF sensor, weak fuel pump/clogged injectors, or an exhaust leak before the O2 sensor."},
     "P0174": {"desc": "System Too Lean (Bank 2). Likely causes: vacuum leak on bank 2, fuel delivery restriction, or a failing MAF sensor."},
     "P0175": {"desc": "System Too Rich (Bank 2). Likely causes: leaking fuel injector, failed fuel pressure regulator, or a faulty O2 sensor."},
-
-    // --- P03xx: Ignition System / Misfire ---
     "P0300": {"desc": "Random or Multiple Cylinder Misfire Detected. Likely causes: worn spark plugs, failing ignition coil(s), a vacuum leak, or low fuel pressure."},
     "P0301": {"desc": "Cylinder 1 Misfire Detected. Likely causes: bad spark plug/coil on cylinder 1, a fuel injector fault, or low compression."},
     "P0302": {"desc": "Cylinder 2 Misfire Detected. Likely causes: bad spark plug/coil on cylinder 2, a fuel injector fault, or low compression."},
@@ -121,23 +126,17 @@ const OBD_DATABASE = {
     "P0325": {"desc": "Knock Sensor 1 Circuit Malfunction. Likely causes: failed knock sensor, damaged wiring, or a loose sensor mount."},
     "P0335": {"desc": "Crankshaft Position Sensor Circuit Malfunction. Likely causes: failed crank sensor, a damaged reluctor ring, or a wiring fault."},
     "P0340": {"desc": "Camshaft Position Sensor Circuit Malfunction. Likely causes: failed cam sensor, timing chain/belt wear, or a wiring fault."},
-
-    // --- P04xx: Emissions (EGR, catalyst, EVAP) ---
     "P0401": {"desc": "EGR Flow Insufficient. Likely causes: clogged EGR valve/passages, a failed EGR valve, or carbon buildup."},
     "P0420": {"desc": "Catalytic Converter Efficiency Below Threshold (Bank 1). Likely causes: deteriorated catalytic converter, a failing O2 sensor, or an exhaust leak."},
     "P0430": {"desc": "Catalytic Converter Efficiency Below Threshold (Bank 2). Likely causes: deteriorated catalytic converter, a failing O2 sensor, or an exhaust leak."},
     "P0442": {"desc": "Evaporative Emission System Leak Detected (small leak). Likely causes: loose/damaged gas cap, a cracked EVAP hose, or a faulty purge valve."},
     "P0455": {"desc": "Evaporative Emission System Leak Detected (large leak). Likely causes: gas cap left off/loose, a disconnected EVAP hose, or a failed purge/vent valve."},
-
-    // --- P05xx: Vehicle Speed, Idle Control, Charging System ---
     "P0500": {"desc": "Vehicle Speed Sensor Malfunction. Likely causes: failed VSS, damaged wiring, or an ABS tone ring issue."},
     "P0505": {"desc": "Idle Control System Malfunction. Likely causes: faulty IAC valve, a dirty throttle body, or a vacuum leak."},
     "P0506": {"desc": "Idle RPM Lower Than Expected. Likely causes: carbon buildup in the throttle body, a vacuum leak, or a failing IAC valve."},
     "P0507": {"desc": "Idle RPM Higher Than Expected. Likely causes: vacuum leak, a stuck-open IAC valve, or throttle body carbon buildup."},
     "P0562": {"desc": "System Voltage Low. Likely causes: weak/failing battery, a failing alternator, or corroded battery terminals."},
     "P0563": {"desc": "System Voltage High. Likely causes: overcharging alternator/regulator, a bad battery cell, or a wiring fault."},
-
-    // --- P07xx: Transmission ---
     "P0700": {"desc": "Transmission Control System Malfunction (informational - check the TCM for a specific code)."},
     "P0715": {"desc": "Input/Turbine Speed Sensor Circuit Malfunction. Likely causes: failed input speed sensor, a wiring fault, or low transmission fluid."},
     "P0720": {"desc": "Output Speed Sensor Circuit Malfunction. Likely causes: failed output speed sensor, a damaged tone ring, or a wiring fault."},
@@ -146,93 +145,61 @@ const OBD_DATABASE = {
 }
 
 // ============================================================
-// 2. DIAGNOSTIC_TREE - the branching question/test/conclusion data
-//
-// A plain nested object with exactly three node shapes, and every node
-// is one of them:
-//
-//   1. QUESTION node: {question: "...", options: {label: child, ...}}
-//      Shown as a question with one button per option; clicking a button
-//      moves to that option's child node (itself one of these three
-//      shapes, recursively).
-//
-//   2. TESTS node: {diagnosis: "...", tests: [ {test}, {test}, ... ]}
-//      Marks the start of a diagnostic stage. Each {test} is:
-//        {check: "short name", instruction: "what to physically do",
-//         options: {label: child, ...}}
-//      "check" is also fuzzy-matched against live OBDb PID data (see
-//      matchPidForCheck below), so a step like "Battery Voltage" can show
-//      the real PID a scan tool would use to read it.
-//
-//   3. LEAF (a plain string): the final diagnosis + fix, in one sentence.
-//      This is the only case where a node is NOT an object. Every path
-//      through the tree eventually reaches one of these, and it names
-//      ONE specific cause - ambiguous "it's X or Y" endings get one more
-//      test added to tell X and Y apart before concluding (see the
-//      Vacuum Leak Spray Test / Coil Resistance Check / etc. below for
-//      examples of that pattern).
-//
-// The renderNode() dispatcher further down decides which of these three
-// shapes it's looking at with a simple type check (string -> leaf, has
-// "tests" -> tests node, otherwise -> question node) - see that
-// function's comment for the rest of this story.
-//
-// Sections below are commented by category/branch purely for human
-// navigation of this ~800-line literal - the code doesn't care about the
-// section boundaries, only about the shapes described above.
+// This serves as the main form of intelligence and is a nested object
+// It features question nodes with a button for each option. clicking an option leads to the corresponding child node
+// It also has test nodes which provides instructions and then options for the result of the test, similarly moving to
+// the corresponding child of whatever is picked.
+// It also has leaf nodes which contain the final diagnosis.
+// The renderNode() function below figures out if its looking at a question, test, or leaf to generate the corresponding graphic/format
 // ============================================================
 
 const DIAGNOSTIC_TREE = {
-    // ---------------------------------------------------------------
-    // ENGINE
-    // ---------------------------------------------------------------
+    // this is the actual "intelligent" diagnosis part
     "Engine": {
-        "question": "What is the primary engine symptom?",
+        "question": "What is the primary engine symptom?", // initial question node
         "options": {
-            // --- Starting Issues: first fork is "does it crank at all?" ---
             "Starting Issues": {
-                "question": "Does the engine crank when you turn the key?",
+                "question": "Does the engine crank when you turn the key?", // first fork, does it show any signs of life by cranking
                 "options": {
-                    // -- Cranks fine, just doesn't start: split on flooding vs no-spark/no-fuel --
-                    "Cranks normally, just won't start": {
+                    "Cranks normally, just won't start": { // second fork, cranks so split to fuel or spark issue
                         "question": "Do you smell raw fuel, or does it backfire/sputter while cranking?",
                         "options": {
                             "Yes, floods / smells like fuel": {
                                 "diagnosis": "Possible Flooding or Over-Rich Condition",
-                                "tests": [{
+                                "tests": [{ // tests for flooded engine
                                     "check": "Clear-Flood Start",
                                     "instruction": "Hold the throttle fully open and crank for about 10 seconds. Does it start?",
                                     "options": {
                                         "Yes": {
                                             "diagnosis": "Flooding Source Check",
-                                            "tests": [{
+                                            "tests": [{ // more test for flooding
                                                 "check": "Injector Wet-Plug Test",
                                                 "instruction": "Remove the spark plug from one cylinder while the engine is still flooded. Does that plug smell heavily of raw fuel or look visibly wet?",
-                                                "options": {
+                                                "options": { // possible diagnoses
                                                     "Yes, wet with fuel": "Stuck-open fuel injector flooding that cylinder. Replace or professionally clean/test the injector.",
                                                     "No, dry/normal": "Over-rich cold-start enrichment, likely from a coolant temperature sensor reading colder than actual. Test the sensor against actual engine temperature and replace it if inaccurate."
                                                 }
                                             }]
                                         },
-                                        "No": {
+                                        "No": { // covers the spark issue split
                                             "diagnosis": "Fuel/Ignition Cross-Check",
-                                            "tests": [{
+                                            "tests": [{ // standard test for spark
                                                 "check": "Spark Test",
                                                 "instruction": "Pull a spark plug, ground it against bare metal on the block, and crank while watching for a blue spark. Do you see one?",
                                                 "options": {
                                                     "No": {
-                                                        "diagnosis": "Ignition Component Check",
-                                                        "tests": [{
+                                                        "diagnosis": "Ignition Component Check", // diagnosis
+                                                        "tests": [{ // more in depth checks for spark
                                                             "check": "Coil Resistance Check",
                                                             "instruction": "Using a multimeter, measure the ignition coil's primary resistance and compare to spec. Is it out of spec?",
-                                                            "options": {
+                                                            "options": { // diagnoses based on result of tests
                                                                 "Yes, out of spec": "Failed ignition coil. Replace the coil.",
                                                                 "No, in spec": {
                                                                     "diagnosis": "Sensor vs Module Check",
-                                                                    "tests": [{
+                                                                    "tests": [{ // sensor tests
                                                                         "check": "Crank Sensor Signal Test",
                                                                         "instruction": "Using a scan tool or scope, check for a crank position sensor signal while cranking. Is a clean signal present?",
-                                                                        "options": {
+                                                                        "options": { // more diagnoses based on tests
                                                                             "No signal": "Failed crankshaft position sensor. Replace the sensor.",
                                                                             "Signal present": "Coil and sensor both test fine, so the fault is in the ignition control module. Replace the ignition control module."
                                                                         }
@@ -241,12 +208,12 @@ const DIAGNOSTIC_TREE = {
                                                             }
                                                         }]
                                                     },
-                                                    "Yes": {
+                                                    "Yes": { // fuel regulator tests
                                                         "diagnosis": "Fuel Delivery Check",
-                                                        "tests": [{
+                                                        "tests": [{ // additional diagnosis and more in depth tests
                                                             "check": "Regulator Vacuum Pinch Test",
                                                             "instruction": "With a fuel pressure gauge connected, briefly pinch off the vacuum line to the fuel pressure regulator while watching the gauge. Does pressure rise noticeably?",
-                                                            "options": {
+                                                            "options": { // diagnosis
                                                                 "Yes, pressure rises": "Fuel pressure regulator's vacuum diaphragm is leaking, letting excess fuel into the intake. Replace the fuel pressure regulator.",
                                                                 "No change": "Regulator is fine, so a stuck-open fuel injector is dumping excess fuel. Replace or professionally clean/test the injector."
                                                             }
@@ -258,6 +225,14 @@ const DIAGNOSTIC_TREE = {
                                     }
                                 }]
                             },
+
+
+                            // As can be seen from the above comments in this section, the decision tree just makes its way through question and test nodes until it reaches a leaf node with a diagnosis
+                            // Each answer to a question or test has a corresponding fork that leads to the appropriate child node based on the provided input, making its way down the decision tree until
+                            // a prediction on diagnosis can be made
+
+                            // I am not going to comment this entire section as the above displays how it works. The rest is just more of the same following different diagnosis paths
+
                             "No unusual smell/sputter": {
                                 "diagnosis": "No-Spark / No-Fuel Diagnosis",
                                 "tests": [{
@@ -347,7 +322,6 @@ const DIAGNOSTIC_TREE = {
                             }
                         }
                     },
-                    // -- Cranks slow: split on whether the battery/charging side is weak --
                     "Cranks slow/labored": {
                         "question": "Turn on the headlights with the engine off. Do they dim significantly or start out dim?",
                         "options": {
@@ -381,7 +355,6 @@ const DIAGNOSTIC_TREE = {
                             }
                         }
                     },
-                    // -- Rapid clicking: classic weak-battery-or-bad-relay/ground symptom --
                     "Rapid clicking, doesn't crank": {
                         "diagnosis": "Cranking Circuit Check",
                         "tests": [{
@@ -409,7 +382,6 @@ const DIAGNOSTIC_TREE = {
                             }
                         }]
                     },
-                    // -- Totally silent: work from the battery posts outward to isolate a dead circuit --
                     "Nothing at all (silent)": {
                         "diagnosis": "Dead Circuit Check",
                         "tests": [{
@@ -460,11 +432,9 @@ const DIAGNOSTIC_TREE = {
                     }
                 }
             },
-            // --- Performance Issue: engine starts fine but misbehaves while running ---
             "Performance Issue": {
                 "question": "When does it happen?",
                 "options": {
-                    // -- Hesitation: cold-only points at the coolant sensor; else air/fuel metering --
                     "Hesitation/Stumbling": {
                         "diagnosis": "Potential Fuel or Air Delivery Issue",
                         "tests": [{
@@ -522,7 +492,6 @@ const DIAGNOSTIC_TREE = {
                             }
                         }]
                     },
-                    // -- Overheating: coolant level splits into "leaking" vs "not circulating" --
                     "Overheating": {
                         "diagnosis": "Cooling System Failure",
                         "tests": [{
@@ -599,7 +568,6 @@ const DIAGNOSTIC_TREE = {
                             }
                         }]
                     },
-                    // -- Rough idle/misfire: check-engine-light state drives the whole branch --
                     "Rough idle or misfire feeling": {
                         "diagnosis": "Misfire / Rough Idle Check",
                         "tests": [{
@@ -648,7 +616,6 @@ const DIAGNOSTIC_TREE = {
                             }
                         }]
                     },
-                    // -- Vibration: speed-dependence + where-you-feel-it locates the culprit --
                     "Vibration at speed": {
                         "question": "Does the vibration change with vehicle speed, or stay the same regardless of speed?",
                         "options": {
@@ -707,13 +674,9 @@ const DIAGNOSTIC_TREE = {
             }
         }
     },
-    // ---------------------------------------------------------------
-    // BRAKES & STEERING
-    // ---------------------------------------------------------------
     "Brakes & Steering": {
         "question": "Where do you feel the issue?",
         "options": {
-            // --- Brake Pedal: how the pedal FEELS is the first fork ---
             "Brake Pedal": {
                 "question": "How does the pedal feel?",
                 "options": {
@@ -807,7 +770,6 @@ const DIAGNOSTIC_TREE = {
                     }
                 }
             },
-            // --- Steering Wheel: heavy-to-turn vs pulls-to-one-side are unrelated fault families ---
             "Steering Wheel": {
                 "question": "Is steering difficult, or does it pull to one side?",
                 "options": {
@@ -876,13 +838,9 @@ const DIAGNOSTIC_TREE = {
             }
         }
     },
-    // ---------------------------------------------------------------
-    // ELECTRICAL & LIGHTS
-    // ---------------------------------------------------------------
     "Electrical & Lights": {
         "question": "What electrical component is failing?",
         "options": {
-            // --- Exterior Lights: scope (one bulb vs many vs all) determines the fault level ---
             "Exterior Lights": {
                 "question": "Is it one bulb out, or multiple lights / an entire side not working?",
                 "options": {
@@ -907,7 +865,6 @@ const DIAGNOSTIC_TREE = {
                     }
                 }
             },
-            // --- Interior Electronics: one accessory (isolated fault) vs several (shared fuse/ground/BCM) ---
             "Interior Electronics": {
                 "question": "Which accessories are affected - just one, or several at once?",
                 "options": {
@@ -941,7 +898,6 @@ const DIAGNOSTIC_TREE = {
                     }
                 }
             },
-            // --- Battery keeps dying: parked (parasitic draw) vs driving (charging system) are different circuits ---
             "Battery keeps dying": {
                 "question": "Does it die overnight/while parked, or while you're driving/idling?",
                 "options": {
@@ -983,50 +939,32 @@ const DIAGNOSTIC_TREE = {
     }
 }
 
-// ============================================================
-// 3. DATA - mutable runtime state
-//
-// Unlike OBD_DATABASE and DIAGNOSTIC_TREE above (fixed data baked into
-// this file), DATA changes while the app runs: "vehicle" and
-// "pid_signals" get overwritten by loadVehicle() whenever someone enters
-// a make/model and the OBDb fetch succeeds. There's no default vehicle
-// pre-loaded - the app always boots to the vehicle-selection screen and
-// fetches live, since everything here happens in a single browser
-// session with no build step to "bake in" a default anymore.
-// ============================================================
+// DATA is the app's live state - it starts empty and loadVehicle() fills in
+// "vehicle", "pid_signals", and "pid_repo" once someone enters a make/model
+// and the OBDb fetch succeeds. There's no pre-baked default vehicle anymore
+// now that this is a single file with no build step - it always starts here.
 let DATA = { vehicle: null, pid_signals: {}, pid_repo: null };
 
 
-// Template for OBDb's raw-content URL - "{repo}" gets replaced with a
-// guessed repo name like "Toyota-Camry" before fetching.
+//{repo} gets replaced with the guessed repo name for the inputted vehicle
 const OBDB_RAW_BASE = "https://raw.githubusercontent.com/OBDb/{repo}/main/signalsets/v3/default.json";
 
-// ---------- tiny DOM helpers used by nearly every render function below ----------
+/*
+below are helper functions for rendering and are self explanatory by name
+*/
 
-// Safely inject arbitrary text into HTML by round-tripping it through
-// the DOM's own escaping (setting textContent, then reading back
-// innerHTML) rather than hand-writing a regex replace - this is the
-// standard "let the browser do it" way to avoid XSS when building HTML
-// strings from data (vehicle names, symptom text, etc.) that ultimately
-// came from user input.
 function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = String(s);
   return d.innerHTML;
 }
 
-// Wipes the single #screen container and returns it, ready for a render
-// function to fill with new content. Called at the start of every
-// "show a new screen" function below - the app has exactly one visible
-// screen at a time.
 function clearScreen() {
   const el = document.getElementById('screen');
   el.innerHTML = '';
   return el;
 }
 
-// Creates one of the colored callout boxes styled by the .box CSS rule
-// above. `cls` is one of 'success' | 'danger' | 'warning' | 'neutral'.
 function mkBox(html, cls) {
   const d = document.createElement('div');
   d.className = 'box ' + cls;
@@ -1048,21 +986,9 @@ function mkInput(placeholder, value) {
 
 
 // ---------- OBDb live fetch (runs in the browser) ----------
-//
-// This runs live, in the browser, whenever someone enters a vehicle on
-// the "Change Vehicle" screen: it guesses the OBDb repo name for that
-// make/model, fetches its signalset JSON straight from GitHub, and
-// parses it into the flat {signal_id: {...}} shape matchPidForCheck
-// expects. It only works when this page is served over http/https (e.g.
-// GitHub Pages), because browsers block fetch() calls from a page opened
-// directly as a local file - opening this file with a double-click still
-// works for everything else, just not this.
+// this fetches signalsets live based on the inputted vehicle instead of relying on a pre-baked file
 
-// Try one candidate repo name. Returns the parsed signalset JSON if that
-// repo exists, or null if the repo doesn't exist (a 404 - a completely
-// normal/expected outcome while guessing names, not an error). Throws
-// for anything else (a real network problem), which the caller uses to
-// decide whether to keep guessing or give up.
+// try the guessed repo name, and go through the fallback steps in fetchObdbSignalset below if it isn't found
 async function tryFetchRepo(repo) {
   const res = await fetch(OBDB_RAW_BASE.replace('{repo}', repo));
   if (res.status === 404) return null;
@@ -1070,12 +996,6 @@ async function tryFetchRepo(repo) {
   return await res.json();
 }
 
-// Flattens one OBDb signalset JSON payload into {signal_id: {name, unit,
-// header, pid}}. The raw format nests signals inside "commands" (one
-// command = one OBD-II request, identified by a CAN header + PID, that
-// can return several signals in a single response); this un-nests that
-// structure since the app only ever needs "given a signal, what PID
-// reads it," not which signals share a single request.
 function parseSignalset(json) {
   const signals = {};
   (json.commands || []).forEach(cmd => {
@@ -1091,30 +1011,20 @@ function parseSignalset(json) {
   return signals;
 }
 
-// Given a make/model typed into the "Change Vehicle" screen, guesses at
-// the OBDb repo name ("Make-Model", then "Make-Mo-del" with a hyphen
-// inserted before a trailing model number, then the bare "Make"
-// fallback), trying each until one exists.
-//
-// Returns {signals, repo} on success, or {signals: null, repo: null} if
-// every candidate came back as a clean 404 (this vehicle just isn't in
-// OBDb yet). Throws an Error if EVERY candidate failed due to a real
-// network problem rather than a 404 - the caller uses this distinction
-// to show "not found" versus "couldn't reach GitHub" as different
-// messages (see loadVehicle below).
+// match the OBDb repo to the inputted make and model
+// tries various formats of the user input model name to attempt to match naming conventions
+// returns {signals, repo} on success, or {signals: null, repo: null} if no candidate matched
 async function fetchObdbSignalset(make, model) {
   make = make.trim(); model = model.trim();
   const candidates = [];
   if (model) {
-    candidates.push(`${make}-${model}`.replace(/\s+/g, '-'));
-    candidates.push(`${make}-${model.replace(/([A-Za-z])(\d)/g, '$1-$2')}`.replace(/\s+/g, '-'));
+    candidates.push(`${make}-${model}`.replace(/\s+/g, '-')); // first try just turning spaces into "-" and searching the repo
+    candidates.push(`${make}-${model.replace(/([A-Za-z])(\d)/g, '$1-$2')}`.replace(/\s+/g, '-')); // also try a "-" between numbers and letters in model name
   }
   candidates.push(make.replace(/\s+/g, '-'));
 
   let sawNetworkError = false;
-  // new Set(...) de-duplicates candidates that came out identical (e.g.
-  // the two model-based guesses collapse to the same string when the
-  // model name has no letter-then-digit boundary to hyphenate).
+  // if found pull the repo from OBDb
   for (const repo of [...new Set(candidates)]) {
     try {
       const json = await tryFetchRepo(repo);
@@ -1128,18 +1038,7 @@ async function fetchObdbSignalset(make, model) {
 }
 
 // ---------- PID matching for test steps ----------
-//
-// This pairs a decision-tree test's "check" label (a short phrase like
-// "Battery Voltage") with the closest-matching live PID signal name from
-// OBDb (e.g. "Battery voltage") using simple word-overlap similarity -
-// no external library, just set intersection. This is intentionally a
-// simple heuristic, not a claim of true semantic matching: it can
-// produce a loose match when two unrelated checks share one generic word
-// (documented in the README's "Known limitations" section).
-
-// Word-overlap similarity between two short phrases: the fraction of
-// words they have in common, relative to the longer phrase's word count.
-// Returns a value from 0 (no shared words) to 1 (identical word sets).
+//pairs the decision trees check label with the most similar PID signal name based on word overlap
 function similarity(a, b) {
   const wa = new Set(a.toLowerCase().split(/\W+/).filter(Boolean));
   const wb = new Set(b.toLowerCase().split(/\W+/).filter(Boolean));
@@ -1149,12 +1048,7 @@ function similarity(a, b) {
   return common / Math.max(wa.size, wb.size);
 }
 
-// For a given test's "check" text, finds the best-matching PID signal
-// (if any) in the currently loaded vehicle's data and returns a ready-
-// to-display HTML string describing it, or null if nothing scores above
-// the 0.34 similarity cutoff (chosen empirically - low enough to catch
-// real matches like "Battery Voltage" <-> "Battery voltage", high enough
-// to filter out most one-word coincidental overlaps).
+//find the best matching PID signal
 function matchPidForCheck(checkText) {
   const signals = DATA.pid_signals || {};
   const ids = Object.keys(signals);
@@ -1164,22 +1058,14 @@ function matchPidForCheck(checkText) {
     const score = similarity(checkText, signals[id].name);
     if (score > bestScore) { bestScore = score; best = id; }
   });
-  if (bestScore < 0.34) return null;
+  if (bestScore < 0.34) return null; //cutoff at .34 similarity to try and filter out minor differences without false matches
   const info = signals[best];
   return `Live PID match: <b>${escapeHtml(info.name)}</b> - cmd ${escapeHtml(JSON.stringify(info.pid))} @ header ${escapeHtml(info.header)} (${escapeHtml(info.unit)})`;
 }
 
 
 // ---------- vehicle selection ----------
-//
-// The vehicle is optional and can change at any time via "Change
-// Vehicle" on the main screen - trouble code lookup and the decision
-// tree work identically with or without one; only Live PID Reference and
-// the small PID-match note on test steps depend on it.
-
-// Shows the make/model/year entry form. Pre-fills the fields from
-// DATA.vehicle if one is already set, so re-opening this screen to
-// correct a typo doesn't make you retype everything.
+//handles vehicle selection and changing the vehicle (only necessary for PID reference)
 function showVehiclePrompt() {
   const el = clearScreen();
   el.appendChild(mkBox("<b>Enter your vehicle</b> to enable the Live PID Reference (optional - everything else works without it).", 'neutral'));
@@ -1202,9 +1088,7 @@ function showVehiclePrompt() {
   loadBtn.addEventListener('click', () => loadVehicle(makeInput.value, modelInput.value, yearInput.value));
   btnRow.appendChild(loadBtn);
 
-  // Lets someone skip straight to the main screen without a vehicle at
-  // all - useful if they only want the decision tree / DTC lookup and
-  // don't care about live PID data.
+//lets you skip straight to decision tree if not inputting a vehicle
   const skipBtn = document.createElement('button');
   skipBtn.className = 'btn';
   skipBtn.textContent = 'Skip for now';
@@ -1215,14 +1099,7 @@ function showVehiclePrompt() {
   btnRow.appendChild(skipBtn);
   el.appendChild(btnRow);
 }
-
-// Handles the "Load Vehicle" button: stores the typed make/model/year,
-// shows a "looking up..." message immediately (fetching can take a
-// second or two), then attempts the live OBDb fetch and routes to one of
-// three outcomes on the main screen: found signals, no repo for this
-// vehicle, or a network problem. Every one of those three paths ends by
-// calling showInitialPrompt(), so the user always lands somewhere useful
-// regardless of what happened - there's no "silent failure" state.
+//handles loading a vehicle and fetching the corresponding info from OBDb
 async function loadVehicle(make, model, year) {
   DATA.vehicle = { make: (make || '').trim(), model: (model || '').trim(), year: (year || '').trim() };
   const el = clearScreen();
@@ -1238,10 +1115,6 @@ async function loadVehicle(make, model, year) {
       showInitialPrompt(`No OBDb repository found for '<b>${escapeHtml(DATA.vehicle.make)} ${escapeHtml(DATA.vehicle.model)}</b>' - continuing without live PID data.`, 'warning');
     }
   } catch (e) {
-    // fetchObdbSignalset only throws for a genuine network problem (see
-    // its docstring above), so this branch specifically means "couldn't
-    // reach GitHub at all" - most commonly because the page was opened
-    // as a local file rather than served over http/https.
     DATA.pid_signals = {};
     DATA.pid_repo = null;
     showInitialPrompt(`Couldn't reach GitHub to fetch live PID data. If you opened this file directly (file://), browsers block that - try hosting it (e.g. GitHub Pages) instead. Continuing without live PID data.`, 'warning');
@@ -1250,12 +1123,7 @@ async function loadVehicle(make, model, year) {
 
 // ---------- main screen ----------
 
-// The hub screen: shows the vehicle header (if one is set), an optional
-// status note (used by loadVehicle above to report what just happened),
-// and the four action buttons. `noteHtml`/`noteCls` are optional -
-// called with no arguments for a plain return to this screen (e.g. from
-// "Start New Triage"), or with a message+color when arriving here after
-// an action that has something to report.
+//initial prompts to begin diagnosis
 function showInitialPrompt(noteHtml, noteCls) {
   const el = clearScreen();
   const v = DATA.vehicle || {};
@@ -1272,6 +1140,7 @@ function showInitialPrompt(noteHtml, noteCls) {
   const row = document.createElement('div');
   row.className = 'btnrow';
 
+//input read codes
   const codeInput = mkInput('Enter OBD-II Code');
   row.appendChild(codeInput);
 
@@ -1280,20 +1149,23 @@ function showInitialPrompt(noteHtml, noteCls) {
   lookupBtn.textContent = 'Lookup Code';
   lookupBtn.addEventListener('click', () => lookupCode(codeInput.value));
   row.appendChild(lookupBtn);
-  codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(codeInput.value); }); // Enter submits, same as clicking the button
+  codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(codeInput.value); });
 
+//describe the problem
   const descBtn = document.createElement('button');
   descBtn.className = 'btn btn-warning';
   descBtn.textContent = 'Describe Symptoms';
   descBtn.addEventListener('click', renderSymptomPrompt);
   row.appendChild(descBtn);
 
+//pid codes
   const pidBtn = document.createElement('button');
   pidBtn.className = 'btn';
   pidBtn.textContent = 'Live PID Reference (OBDb)';
   pidBtn.addEventListener('click', showPidReference);
   row.appendChild(pidBtn);
 
+//select/change vehicle
   const vehicleBtn = document.createElement('button');
   vehicleBtn.className = 'btn';
   vehicleBtn.textContent = 'Change Vehicle';
@@ -1303,10 +1175,7 @@ function showInitialPrompt(noteHtml, noteCls) {
   el.appendChild(row);
 }
 
-// Shows the table of every live PID signal loaded for the current
-// vehicle (if any), with an explanatory message either way - this is
-// also where DATA.pid_signals actually gets displayed, as opposed to
-// just being used internally by matchPidForCheck.
+//shows table of live PID values and corresponding info
 function showPidReference() {
   const el = clearScreen();
   const v = DATA.vehicle || {};
@@ -1344,20 +1213,12 @@ function showPidReference() {
 }
 
 // ---------- DTC lookup ----------
-//
-// This is the "trouble code" feature: a plain dictionary lookup against
-// OBD_DATABASE (the const defined near the top of this script).
-// Deliberately simple/rule-based - unlike the symptom classifier below,
-// there's no ambiguity to resolve here: a P-code either has one fixed
-// meaning in the database, or it doesn't.
-
-// Shared by both the DTC lookup and the decision tree's final
-// conclusion: adds a Google search link (pre-filled with the vehicle +
-// the diagnosis text, for finding vehicle-specific repair guides) and a
-// button to return to the main screen.
+//lookup OBD2 codes
 function appendSearchHelper(el, resultText) {
   const v = DATA.vehicle || {};
   const query = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} ${resultText}`);
+
+  //provide a link to repair guide for inputted code
   const link = document.createElement('a');
   link.href = `https://www.google.com/search?q=${query}`;
   link.target = '_blank';
@@ -1365,25 +1226,26 @@ function appendSearchHelper(el, resultText) {
   link.textContent = 'Repair Guide Search \u{1F50D}';
   el.appendChild(link);
 
+  //go back to the beginning
   const restart = document.createElement('button');
   restart.className = 'btn btn-success';
   restart.textContent = 'Start New Triage';
   restart.addEventListener('click', () => showInitialPrompt());
   el.appendChild(restart);
 }
-
-// Looks up a typed OBD-II code (case/whitespace-insensitive) against the
-// local database. On a miss, rather than a dead-end "not found" message,
-// it drops straight into the symptom description flow - a wrong/unlisted
-// code is exactly the situation where "describe what's happening
-// instead" is the most useful next step.
+//looks up the typed in code in OBD_DATABASE
+//accounts for whitespace and case
 function lookupCode(rawCode) {
   const code = (rawCode || '').toUpperCase().trim();
   const res = OBD_DATABASE[code];
   const el = clearScreen();
+
+  //if found it describes the symptoms and provides link
   if (res) {
     el.appendChild(mkBox(`<b>${escapeHtml(code)}:</b> ${escapeHtml(res.desc)}`, 'success'));
     appendSearchHelper(el, `${code} ${res.desc}`);
+
+    //if not found informs you of such
   } else {
     el.appendChild(mkBox('Code not found. Describe the symptoms instead below.', 'danger'));
     renderSymptomPromptInto(el);
@@ -1398,9 +1260,6 @@ function lookupCode(rawCode) {
 // similarity - genuine vector-space text classification, not a
 // does-the-string-contain-this-substring check. See README for a fuller
 // explanation.
-//
-// "path" is the sequence of DIAGNOSTIC_TREE keys that leads to that
-// category's entry point - see walkTree() below for how it's followed.
 
 const SYMPTOM_CATEGORIES = [
   { label: "Won't Start (engine cranks)", path: ["Engine", "Starting Issues", "Cranks normally, just won't start"],
@@ -1437,27 +1296,17 @@ const SYMPTOM_CATEGORIES = [
     examples: ["battery dies overnight", "car battery keeps dying every morning", "dead battery every time i park it", "parasitic draw killing my battery", "battery drains even when the car is off"] },
 ];
 
-// Words too common to be useful for distinguishing categories ("car",
-// "the", "when") get filtered out before vectorizing - without this,
-// every category's vector would share a big chunk of mass on words that
-// carry no diagnostic signal, diluting the real distinguishing words.
+//filters out common words that dont help with distinguishing categories
 const STOPWORDS = new Set(["the", "a", "an", "is", "are", "it", "to", "of", "and", "in", "on", "at",
   "this", "that", "my", "car", "i", "im", "its", "it's", "when", "does", "do", "with", "for", "has",
   "have", "from", "just", "really", "very", "seems", "seem", "feels", "feel", "get", "gets", "getting"]);
 
-// Splits free text into lowercase word tokens, dropping punctuation and
-// stopwords. This is the first step for both the category "documents"
-// (SYMPTOM_CATEGORIES[i].examples) and whatever the user types - the
-// SAME function is used for both, which matters: if the two used
-// different tokenization rules, comparing their vectors wouldn't be
-// meaningful.
+//standardizes text inputs
 function tokenize(text) {
   return (text || "").toLowerCase().split(/[^a-z0-9']+/).filter(w => w && !STOPWORDS.has(w));
 }
 
-// Term frequency: for a tokenized document, what fraction of its words
-// is each distinct word? (e.g. in ["a","a","b"], "a" has tf 2/3.) This
-// is the "TF" half of "TF-IDF" - see buildClassifier for the "IDF" half.
+//frequency of tokenized words
 function termFreq(doc) {
   const counts = {};
   doc.forEach(w => { counts[w] = (counts[w] || 0) + 1; });
@@ -1467,52 +1316,21 @@ function termFreq(doc) {
   return tf;
 }
 
-// Module-level cache: the classifier's vocabulary/IDF weights and each
-// category's vector only need to be computed once (from the fixed
-// SYMPTOM_CATEGORIES data), not recomputed on every "Analyze" click.
 let _idf = null, _categoryVectors = null;
 
-// Builds the classifier's IDF (inverse document frequency) table and
-// each category's TF-IDF vector, from SYMPTOM_CATEGORIES' example
-// phrases. Called lazily (see classifySymptoms) the first time
-// classification is needed, then cached.
-//
-// IDF is what makes this "term frequency - INVERSE DOCUMENT frequency"
-// rather than just term frequency: a word that shows up in most/all
-// categories (like a leftover generic word) gets a LOW idf weight (close
-// to log(1) after smoothing), while a word that's concentrated in only
-// one or two categories gets a HIGH idf weight - so the model
-// automatically learns which words are actually diagnostic, without
-// anyone hand-picking them.
+//assigns weights to tokenized words based on how many categories they show up in so the model knows which words
+//actually relate to a specific diagnosis
 function buildClassifier() {
-  // Each category's "document" is just all its example phrases
-  // concatenated - the classifier doesn't need to know WHICH example
-  // phrase most resembles the input, only how the category as a whole
-  // compares.
   const docs = SYMPTOM_CATEGORIES.map(c => tokenize(c.examples.join(" ")));
-
-  // Document frequency: for each word, how many of the 16 category
-  // documents contain it at least once? (Not how many TIMES total -
-  // that's term frequency, computed separately per-document above.)
   const df = {};
   docs.forEach(doc => { new Set(doc).forEach(w => { df[w] = (df[w] || 0) + 1; }); });
-
-  const n = docs.length; // number of categories = number of "documents" in this corpus
+  const n = docs.length;
   _idf = {};
-  // Standard smoothed IDF formula: log((n+1)/(df+1)) + 1. The +1s prevent
-  // divide-by-zero and guarantee every word gets a nonzero weight even
-  // if it appeared in every single category.
-  Object.keys(df).forEach(w => { _idf[w] = Math.log((n + 1) / (df[w] + 1)) + 1; });
-
+  Object.keys(df).forEach(w => { _idf[w] = Math.log((n + 1) / (df[w] + 1)) + 1; }); // smoothed idf
   _categoryVectors = docs.map(doc => tfidfVector(doc));
 }
 
-// Converts one tokenized document into its TF-IDF vector: for each word,
-// multiply how often it appears in THIS document (tf) by how
-// distinctive that word is ACROSS ALL documents (idf, computed once in
-// buildClassifier and reused here for both category vectors and the
-// user's query vector - using the same idf values for both is what
-// makes comparing them meaningful).
+//creates a vector based on the term frequency and inverse document frequency
 function tfidfVector(doc) {
   const tf = termFreq(doc);
   const vec = {};
@@ -1520,11 +1338,7 @@ function tfidfVector(doc) {
   return vec;
 }
 
-// Cosine similarity between two TF-IDF vectors (stored as sparse
-// {word: weight} objects, since most words appear in neither document
-// being compared). Returns a value from 0 (no shared vocabulary) to 1
-// (proportionally identical word usage) - this is the standard way to
-// compare two "bag of words" vectors regardless of document length.
+//compares similarity between two TF-IDF vectors
 function cosineSimilarity(vecA, vecB) {
   let dot = 0, normA = 0, normB = 0;
   const keys = new Set([...Object.keys(vecA), ...Object.keys(vecB)]);
@@ -1536,11 +1350,7 @@ function cosineSimilarity(vecA, vecB) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-// Top-level classification entry point: vectorizes the user's free text
-// with the SAME idf weights the categories use (see tfidfVector), scores
-// it against every category by cosine similarity, and returns all 16
-// categories sorted best-match-first. Lazily builds the classifier on
-// first use (see the _categoryVectors cache above).
+//top level entry point which vectorizes input text and scores its TF_IDF against other categories to see what is the best match
 function classifySymptoms(rawText) {
   if (!_categoryVectors) buildClassifier();
   const queryVec = tfidfVector(tokenize(rawText));
@@ -1549,13 +1359,7 @@ function classifySymptoms(rawText) {
     .sort((a, b) => b.score - a.score);
 }
 
-// Follows a SYMPTOM_CATEGORIES "path" array (e.g. ["Engine", "Starting
-// Issues", "Cranks slow/labored"]) down into DIAGNOSTIC_TREE to find the
-// node that path points at. The first step indexes straight into the
-// tree's top-level category dict; every step after that goes through
-// that node's "options" dict - matching the shape difference between the
-// bare top-level dict and every question-node below it (see the
-// DIAGNOSTIC_TREE schema comment near the top of this file).
+//follow the path of symptom categories down the diagnostic tree
 function walkTree(path) {
   let node = DIAGNOSTIC_TREE;
   for (const key of path) {
@@ -1565,10 +1369,7 @@ function walkTree(path) {
 }
 
 
-// Renders the free-text input box into an existing container `el`
-// (rather than clearing the screen itself) so it can be reused both as
-// its own screen (renderSymptomPrompt) and appended below a "code not
-// found" message (see lookupCode above).
+//renders input text into its own container
 function renderSymptomPromptInto(el) {
   const label = document.createElement('div');
   label.innerHTML = '<b>Describe the issue, in a full sentence if you can:</b>';
@@ -1592,15 +1393,11 @@ function renderSymptomPrompt() {
   renderSymptomPromptInto(clearScreen());
 }
 
-const MIN_CONFIDENT_SCORE = 0.03; // below this, treat as "no real lexical match" rather than force a guess
-const TOP_N_MATCHES = 3;          // how many ranked candidates to show the user
+const MIN_CONFIDENT_SCORE = 0.03; // below this, treat as "no real lexical match"
+const TOP_N_MATCHES = 3; //shows the top 3 ranked matches
 
-// Runs the classifier on what the user typed and decides what to show
-// next: if nothing scored above the confidence floor (e.g. gibberish, or
-// a symptom genuinely outside the 16 known categories), fall back to
-// letting the user browse DIAGNOSTIC_TREE by category instead of forcing
-// a bad guess; otherwise show the ranked candidates for the user to pick
-// from (see renderSymptomMatches).
+//runs the classifier on what the user typed and what the top matches were
+//if there were no good matches, gives generic options for the type of problem
 function analyzeSymptoms(rawText) {
   const ranked = classifySymptoms(rawText);
   const top = ranked.slice(0, TOP_N_MATCHES).filter(r => r.score > MIN_CONFIDENT_SCORE);
@@ -1612,14 +1409,7 @@ function analyzeSymptoms(rawText) {
   renderSymptomMatches(rawText, top);
 }
 
-// Displays the classifier's top candidates as clickable cards, each with
-// a normalized confidence bar. "Normalized" means the displayed
-// percentages are the top few scores rescaled to sum to 100% for
-// readability (e.g. raw cosine scores of 0.31/0.11/0.06 become a much
-// more intuitive-looking 65%/23%/12%) - this is a display choice, not a
-// claim that the underlying scores are true probabilities. Clicking a
-// candidate jumps straight into that category's branch of the tree via
-// walkTree(); "None of these" drops back to full manual browsing.
+//create clickable buttons with confidence bar for the top matching symptoms that lead to the corresponding branch of the decision tree
 function renderSymptomMatches(rawText, top) {
   const el = clearScreen();
   el.appendChild(mkBox(`Based on "<i>${escapeHtml(rawText)}</i>", here's what this looks most like (ranked by text similarity to known symptom patterns):`, 'neutral'));
@@ -1651,36 +1441,15 @@ function renderSymptomMatches(rawText, top) {
 
 
 // ---------- unified tree dispatcher (question / tests / conclusion) ----------
-//
-// This is the single entry point for walking DIAGNOSTIC_TREE. Every
-// button anywhere in the tree UI - a question's option, a test's
-// pass/fail choice, "This one" on a symptom match - calls renderNode()
-// with whatever node that choice leads to, rather than each caller
-// deciding for itself how to display it. That matters because a tree
-// node can be any of three different shapes (see the schema comment
-// above DIAGNOSTIC_TREE), and an earlier version of this app got that
-// wrong: it had TWO separate rendering paths (one for question nodes,
-// one for test nodes) that had each grown their own click handlers, and
-// one of those handlers didn't check whether it had reached a plain
-// string leaf before treating it like a dict - which crashed the moment
-// a test's answer was a final diagnosis instead of another question.
-// Funneling every transition through this one dispatcher, which always
-// checks the node's type FIRST, makes that entire class of bug
-// impossible: nothing downstream of here ever touches a node without
-// knowing what shape it is.
-
+//checks the node type of the next thing in the diagnostic tree and renders the corresponding graphic
 function renderNode(node) {
   if (typeof node === 'string') { renderConclusion(node); return; }
   if (node.tests) { renderTests(node); return; }
   renderQuestion(node);
 }
 
-// Renders a question node: the question text plus one button per option.
-// `node.options || node` handles the one asymmetry in the tree shape -
-// DIAGNOSTIC_TREE's top-level object (the category picker) has no
-// "options" wrapper around its entries, while every question node below
-// it does; this lets the exact same function render both without a
-// special case at the call site.
+//below functions are self explanatory for the type of node they render based on name
+
 function renderQuestion(node) {
   const el = clearScreen();
   el.appendChild(mkBox(`<b>${escapeHtml(node.question || 'Select an option:')}</b>`, 'neutral'));
@@ -1698,15 +1467,6 @@ function renderQuestion(node) {
   el.appendChild(row);
 }
 
-// Renders a "tests" node: the diagnosis-stage title, then one box per
-// test in node.tests, each showing its instruction (plus a live PID
-// match if matchPidForCheck finds one - see that function's comment
-// above) and a button per possible test outcome. Clicking an outcome
-// button calls renderNode() with whatever that outcome maps to - a
-// string (done, show the conclusion), another question, or even another
-// tests node for a further round of checks - so test chains of arbitrary
-// depth "just work" without this function needing to know how deep it
-// is in the tree.
 function renderTests(node) {
   const el = clearScreen();
   const title = document.createElement('h3');
@@ -1735,8 +1495,6 @@ function renderTests(node) {
   });
 }
 
-// Renders a leaf (string) node: the final diagnosis + fix, styled as a
-// success box, plus the shared search-link/restart controls.
 function renderConclusion(text) {
   const el = clearScreen();
   el.appendChild(mkBox(escapeHtml(text), 'success'));
@@ -1744,18 +1502,8 @@ function renderConclusion(text) {
 }
 
 // ---------- boot ----------
-//
-// Entry point, called once at the bottom of this script. Wires up the
-// always-visible "Start Over" link (see the HTML comment near <h2> above
-// ---------- boot ----------
-//
-// Entry point, called once at the bottom of this script. Wires up the
-// always-visible "Start Over" link (see the HTML comment near <h2> above
-// for why it lives outside #screen), then shows the vehicle-selection
-// screen first. There's no pre-baked default vehicle to check for in
-// this single-file version - DATA.vehicle always starts null - so this
-// always goes to showVehiclePrompt(); "Skip for now" on that screen gets
-// straight to the main hub without one.
+//allows the user to start over, then goes straight to vehicle selection since this single file has
+//no build step left to pre-bake a default vehicle into DATA anymore
 
 function boot() {
   document.getElementById('start-over-link').addEventListener('click', e => {
