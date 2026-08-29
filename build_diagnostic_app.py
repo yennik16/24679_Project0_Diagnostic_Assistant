@@ -1,10 +1,54 @@
+"""
+USE OF AI:
+I vibecoded this program as discussed in the class. I started on google colab hence the commits here being 
+fairly limited as I had never used github but decided to switch based on lecture/running into issues with the gui.
 
-import re
-import json
-import difflib
-import urllib.request
+To start I just used the built in colab AI assistant prompting it with a modified version of my project 0 idea:
+make an automotive diagnostic assistant which could be used to predict the cause of car troubles. 
+This could help provide a list of things for the user to check themselves, or provide them with a better 
+baseline idea of the issue before bringing it to a mechanic. A user will interact with the system by describing 
+the issue through a gui and then answering a series of (dynamic) questions, allowing the system to zero in on 
+a likely diagnosis. you may need to use a dataset of automotive issues and their causes, a decision tree, a 
+model to interpret user answers, and Python to code it.
+
+I then reviewed its output and prompted: 
+make a much more in depth decision tree. is there an automotive code database that can be incorporated?
+
+I was not satisfied with the results of this so I found a github database with a list of obd codes myself and 
+prompted it to implement https://github.com/obdb
+
+I then prompted it about 10 times with the output of various different tests asking it to continue with a decision 
+tree when I felt it stopped with too broad a solution, asked it to implement a feature that would search for online
+repair guides when the final issue was found, and fixing various bugs and issues. I also prompted it to start by asking
+for a trouble code. I then prompted it to allow for a text description of symptoms rather than relying entirely on generic
+buttons. I then prompted it several more times to fix errors, try and improve the depth of diagnosis, and get it to properly 
+use the github database I had found. 
+
+I hit a roadblock asking it to create a popout gui rather than one at the bottom of the 
+code where it would just compile indefinitely. At this point I switched to claude to further refine it.
+I prompted claude to fix the popout gui with notes on what I wanted the flow/appearance to be like. The popout still
+would not work however and there was a consistent issue with buttons needing to be clicked multiple times before
+text boxes or the next thing would appear. It identified it as a colab issue which is when I switched to github, having it 
+generate the initial commit. The rest of the commits also used Claude, limited by its usage limits. I asked it to add the
+confidence ranked symptom classification to improve intelligence and prompted it further to improve the decision tree so that
+it continued until a single problem was identified, instead of terminating with a short list of possible issues. Comments, 
+rewriting of the readme, etc. past the fourth commit were done manually by me, but I asked Claude to thoroughly explain everything
+first to ensure I understood anything I was iffy on.
+
+
+Overview:
+This file references the OBDb github to get the live PID data for a vehicle. It also includes the diagnostic tree which is 
+a nested dict with multiple branches as the user provides more information allowing the program to predict the cause of the
+problem. It also includes the HTML template to build the GUI to use the program. build_app() creates the final index.html
+"""
+import re #to turn model name into github repo name guesses
+import json #for creating the HTML
+import difflib #for matching vehicle names to the OBDb repo
+import urllib.request #HTTP client
 import urllib.error
 
+#attempt to import the database of trouble codes 
+#use an empty database if that file is missing so the other funcitonality remains intact
 try:
     from obd_database import OBD_CODES as OBD_DATABASE, KNOWN_MODELS
 except ImportError:
@@ -15,63 +59,72 @@ except ImportError:
 # OBDb integration (Python side - only used if you pre-bake a vehicle)
 # ============================================================
 
+#guess the correct repo name in the OBDb github based on the plain text model input
+#if it finds the corresponding repo it gets the information otherwise it skips to generic vehicle
+#this repo has more in depth can bus codes to fetch specific information from the vehicle computer with a professional scanner
 OBDB_RAW_BASE = "https://raw.githubusercontent.com/OBDb/{repo}/main/signalsets/v3/default.json"
 OBDB_API_REPOS = "https://api.github.com/orgs/OBDb/repos"
 _obdb_repo_list_cache = None
 
-
+#for when the github request fails due to network issues
 class OBDbNetworkError(Exception):
     pass
 
-
+#gets the url text and returns a decoded string
 def _http_get_text(url, timeout=5, method="GET"):
     req = urllib.request.Request(url, headers={"User-Agent": "diagnostic-assistant"}, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8")
 
-
+#this part checks the OBDb github for a corresponding repo based on the vehicle name
+#and returns true or false for if it does or doesn't find it
+#can also raise the previous error for if a network issue is suspected
 def _probe_repo(repo, timeout=4):
     url = OBDB_RAW_BASE.format(repo=repo)
     req = urllib.request.Request(url, headers={"User-Agent": "diagnostic-assistant"}, method="HEAD")
     try:
         urllib.request.urlopen(req, timeout=timeout)
-        return True
+        return True #repo found
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return False
+            return False #no matching repo
         raise OBDbNetworkError(f"HTTP {e.code} from GitHub")
-    except Exception as e:
+    except Exception as e: #some form of network error (not an error because no matching repo)
         raise OBDbNetworkError(str(e))
 
-
+#fetch the repo names contained in OBDb as an additional check for a matching one if not previously found
 def _list_obdb_repos():
     global _obdb_repo_list_cache
     if _obdb_repo_list_cache is not None:
         return _obdb_repo_list_cache
     names, page = [], 1
     try:
-        while True:
+        while True: #loop through the github to get all the repo names
             data = json.loads(_http_get_text(f"{OBDB_API_REPOS}?per_page=100&page={page}"))
-            if not data or isinstance(data, dict):
+            if not data or isinstance(data, dict): #empty list means youre at the end
                 break
-            names.extend(r["name"] for r in data)
-            if len(data) < 100:
+            names.extend(r["name"] for r in data) #get the names
+            if len(data) < 100: #if a page isn't full its the last one so stop after it
                 break
             page += 1
-    except Exception:
+    except Exception: #just return whatever it has so far instead of failing completely if theres an issue
         pass
     _obdb_repo_list_cache = names
     return names
 
-
+"""match the OBDb repo to the inputted make and model
+tries various formats of the user input model name to attempt to match naming conventions
+"""
 def find_obdb_repo(make, model):
     make, model = make.strip(), model.strip()
     candidates = []
+
     if model:
-        candidates.append(f"{make}-{model}".replace(" ", "-"))
-        candidates.append(f"{make}-{re.sub(r'([A-Za-z])(\d)', r'\1-\2', model)}".replace(" ", "-"))
+        candidates.append(f"{make}-{model}".replace(" ", "-"))    #first try just turning spaces into "-" and searching the repo
+        candidates.append(f"{make}-{re.sub(r'([A-Za-z])(\d)', r'\1-\2', model)}".replace(" ", "-")) #also try a "-" between numbers and letters in model name
     candidates.append(make.replace(" ", "-"))
 
+    #if found pull the repo from OBDb
     seen = set()
     for repo in candidates:
         if repo in seen:
@@ -80,6 +133,7 @@ def find_obdb_repo(make, model):
         if _probe_repo(repo):
             return repo
 
+    #search for close matches if one isn't initially found
     all_repos = _list_obdb_repos()
     if all_repos:
         target = f"{make}-{model}".replace(" ", "-") if model else make
@@ -88,7 +142,8 @@ def find_obdb_repo(make, model):
             return best[0]
     return None
 
-
+#reformat the OBDb file into a simplified version
+#unnests the signalset from the command allowing it to easily identify what PID reads a given signal
 def parse_signalset(raw_json_text):
     data = json.loads(raw_json_text)
     signals = {}
@@ -104,7 +159,7 @@ def parse_signalset(raw_json_text):
             }
     return signals
 
-
+#find the OBDb repo given a make and model and return the parsed signalset
 def fetch_obdb_signalset(make, model):
     repo = find_obdb_repo(make, model)
     if not repo:
@@ -118,52 +173,61 @@ def fetch_obdb_signalset(make, model):
 # Each branch is several rounds of concrete tests deep, not a single guess.
 # ============================================================
 
+"""
+This serves as the main form of intelligence and is a nested dict 
+It features question nodes with a button for each option. clicking an option leads to the corresponding child node
+It also has test nodes which provides instructions and then options for the result of the test, similarly moving to 
+the corresponding child of whatever is picked.
+It also has leaf nodes which contain the final diagnosis.
+The renderNode() in HTML_TEMPLATE figures out if its looking at a question, test, or leaf to generate the corresponding graphic/format
+"""
 DIAGNOSTIC_TREE = {
+    #this is the actual "intelligent" diagnosis part
     "Engine": {
-        "question": "What is the primary engine symptom?",
+        "question": "What is the primary engine symptom?", #initial question node
         "options": {
             "Starting Issues": {
-                "question": "Does the engine crank when you turn the key?",
+                "question": "Does the engine crank when you turn the key?", #first fork, does it show any signs of life by cranking
                 "options": {
-                    "Cranks normally, just won't start": {
+                    "Cranks normally, just won't start": { #second fork, cranks so split to fuel or spark issue
                         "question": "Do you smell raw fuel, or does it backfire/sputter while cranking?",
                         "options": {
                             "Yes, floods / smells like fuel": {
-                                "diagnosis": "Possible Flooding or Over-Rich Condition",
-                                "tests": [{
+                                "diagnosis": "Possible Flooding or Over-Rich Condition", 
+                                "tests": [{ #tests for flooded engine 
                                     "check": "Clear-Flood Start",
                                     "instruction": "Hold the throttle fully open and crank for about 10 seconds. Does it start?",
                                     "options": {
                                         "Yes": {
                                             "diagnosis": "Flooding Source Check",
-                                            "tests": [{
+                                            "tests": [{ #more test for flooding
                                                 "check": "Injector Wet-Plug Test",
                                                 "instruction": "Remove the spark plug from one cylinder while the engine is still flooded. Does that plug smell heavily of raw fuel or look visibly wet?",
-                                                "options": {
+                                                "options": { #possible diagnoses
                                                     "Yes, wet with fuel": "Stuck-open fuel injector flooding that cylinder. Replace or professionally clean/test the injector.",
                                                     "No, dry/normal": "Over-rich cold-start enrichment, likely from a coolant temperature sensor reading colder than actual. Test the sensor against actual engine temperature and replace it if inaccurate."
                                                 }
                                             }]
                                         },
-                                        "No": {
+                                        "No": { #covers the spark issue split
                                             "diagnosis": "Fuel/Ignition Cross-Check",
-                                            "tests": [{
+                                            "tests": [{ #standard test for spark
                                                 "check": "Spark Test",
                                                 "instruction": "Pull a spark plug, ground it against bare metal on the block, and crank while watching for a blue spark. Do you see one?",
                                                 "options": {
                                                     "No": {
-                                                        "diagnosis": "Ignition Component Check",
-                                                        "tests": [{
+                                                        "diagnosis": "Ignition Component Check", #diagnosis
+                                                        "tests": [{ #more in depth checks for spark
                                                             "check": "Coil Resistance Check",
                                                             "instruction": "Using a multimeter, measure the ignition coil's primary resistance and compare to spec. Is it out of spec?",
-                                                            "options": {
+                                                            "options": { #diagnoses based on result of tests
                                                                 "Yes, out of spec": "Failed ignition coil. Replace the coil.",
                                                                 "No, in spec": {
                                                                     "diagnosis": "Sensor vs Module Check",
-                                                                    "tests": [{
+                                                                    "tests": [{ #sensor tests
                                                                         "check": "Crank Sensor Signal Test",
                                                                         "instruction": "Using a scan tool or scope, check for a crank position sensor signal while cranking. Is a clean signal present?",
-                                                                        "options": {
+                                                                        "options": { #more diagnoses based on tests
                                                                             "No signal": "Failed crankshaft position sensor. Replace the sensor.",
                                                                             "Signal present": "Coil and sensor both test fine, so the fault is in the ignition control module. Replace the ignition control module."
                                                                         }
@@ -172,12 +236,12 @@ DIAGNOSTIC_TREE = {
                                                             }
                                                         }]
                                                     },
-                                                    "Yes": {
+                                                    "Yes": { #fuel regulator tests
                                                         "diagnosis": "Fuel Delivery Check",
-                                                        "tests": [{
+                                                        "tests": [{ #additional diagnosis and more in depth tests
                                                             "check": "Regulator Vacuum Pinch Test",
                                                             "instruction": "With a fuel pressure gauge connected, briefly pinch off the vacuum line to the fuel pressure regulator while watching the gauge. Does pressure rise noticeably?",
-                                                            "options": {
+                                                            "options": { #diagnosis
                                                                 "Yes, pressure rises": "Fuel pressure regulator's vacuum diaphragm is leaking, letting excess fuel into the intake. Replace the fuel pressure regulator.",
                                                                 "No change": "Regulator is fine, so a stuck-open fuel injector is dumping excess fuel. Replace or professionally clean/test the injector."
                                                             }
@@ -189,6 +253,14 @@ DIAGNOSTIC_TREE = {
                                     }
                                 }]
                             },
+
+                            
+                            #As can be seen from the above comments in this section, the decision tree just makes its way through question and test nodes until it reaches a leaf node with a diagnosis
+                            #Each answer to a question or test has a corresponding fork that leads to the appropriate child node based on the provided input, making its way down the decision tree until 
+                            #a prediction on diagnosis can be made
+
+                            #I am not going to comment this entire section as the above displays how it works. The rest is just more of the same following different diagnosis paths
+                       
                             "No unusual smell/sputter": {
                                 "diagnosis": "No-Spark / No-Fuel Diagnosis",
                                 "tests": [{
@@ -895,16 +967,26 @@ DIAGNOSTIC_TREE = {
     }
 }
 
-
+#HTML template to build the actual GUI popout
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>Automotive Diagnostic Assistant</title>
 <style>
+
+/*
+below sets colors, fonts, etc. for the gui manually to avoid issues with light vs dark mode etc.
+*/
+
   body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#ffffff; color:#212529;
          max-width:860px; margin:24px auto; padding:0 16px; }
   h2, h3 { color:#212529; }
+
+/*
+recolor messages based on severity
+*/
+
   .box { padding:12px; border-radius:4px; margin:10px 0; border-left:6px solid #adb5bd;
          background:#f8f9fa; font-size:14px; line-height:1.5; }
   .box.success { background:#d4edda; border-color:#28a745; color:#155724; }
@@ -912,6 +994,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .box.warning { background:#fff3cd; border-color:#e0a800; color:#664d03; }
   .box.neutral { background:#f1f3f5; border-color:#adb5bd; color:#212529; }
   .btnrow { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; align-items:center; }
+  
+/*
+add the buttons colored based on type
+*/
+
   .btn { padding:9px 16px; border:none; border-radius:4px; cursor:pointer; font-size:14px;
          background:#6c757d; color:#ffffff; }
   .btn:hover { opacity:0.85; }
@@ -924,11 +1011,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .pidnote { font-size:0.85em; color:#495057; margin-top:6px; }
   .search-link { display:inline-block; background:#4285f4; color:#ffffff !important; padding:9px 14px;
                  border-radius:4px; text-decoration:none; margin:8px 8px 8px 0; }
+
+ /*
+The live PID reference table with information pulled from OBDb github. capped for formatting
+*/
+
   .table-wrap { max-height:340px; overflow:auto; border:1px solid #dee2e6; border-radius:4px; margin-top:8px; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
   th, td { padding:6px 8px; text-align:left; border-bottom:1px solid #eee; }
   th { background:#f1f3f5; position:sticky; top:0; }
   .breadcrumb { font-size:0.85em; color:#6c757d; margin-bottom:6px; }
+
+/*
+below allows the user to exit back to the beginning at any time 
+Also handles the different screens by clearing and rendering the next 
+*/
+
 </style>
 </head>
 <body>
@@ -938,8 +1036,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="screen"></div>
 
 <script>
+
+/*
+build_app() takes DATA and replaces it with the actual json for the corresponding vehicle with the pid repo etc.
+*/
+
 const DATA = __DATA_JSON__;
+
+//{repo} gets replaced with the guessed repo name for the inputted vehicle
 const OBDB_RAW_BASE = "https://raw.githubusercontent.com/OBDb/{repo}/main/signalsets/v3/default.json";
+
+/*
+below are helper functions for rendering and are self explanatory by name
+*/
 
 function escapeHtml(s) {
   const d = document.createElement('div');
@@ -970,7 +1079,9 @@ function mkInput(placeholder, value) {
 }
 
 // ---------- OBDb live fetch (runs in the browser) ----------
+//a live version of the python find_obdb_repo to fetch signalsets based on the inputted vehicle
 
+//try the guessed repo name, go through the same steps as described earlier in the python implementation
 async function tryFetchRepo(repo) {
   const res = await fetch(OBDB_RAW_BASE.replace('{repo}', repo));
   if (res.status === 404) return null;
@@ -1016,7 +1127,7 @@ async function fetchObdbSignalset(make, model) {
 }
 
 // ---------- PID matching for test steps ----------
-
+//pairs the decision trees check label with the most similar PID signal name based on word overlap
 function similarity(a, b) {
   const wa = new Set(a.toLowerCase().split(/\W+/).filter(Boolean));
   const wb = new Set(b.toLowerCase().split(/\W+/).filter(Boolean));
@@ -1026,6 +1137,7 @@ function similarity(a, b) {
   return common / Math.max(wa.size, wb.size);
 }
 
+//find the best matching PID signal 
 function matchPidForCheck(checkText) {
   const signals = DATA.pid_signals || {};
   const ids = Object.keys(signals);
@@ -1035,13 +1147,13 @@ function matchPidForCheck(checkText) {
     const score = similarity(checkText, signals[id].name);
     if (score > bestScore) { bestScore = score; best = id; }
   });
-  if (bestScore < 0.34) return null;
+  if (bestScore < 0.34) return null; //cutoff at .34 similarity to try and filter out minor differences without false matches
   const info = signals[best];
   return `Live PID match: <b>${escapeHtml(info.name)}</b> - cmd ${escapeHtml(JSON.stringify(info.pid))} @ header ${escapeHtml(info.header)} (${escapeHtml(info.unit)})`;
 }
 
 // ---------- vehicle selection ----------
-
+//handles vehicle selection and changing the vehicle (only necessary for PID reference)
 function showVehiclePrompt() {
   const el = clearScreen();
   el.appendChild(mkBox("<b>Enter your vehicle</b> to enable the Live PID Reference (optional - everything else works without it).", 'neutral'));
@@ -1064,6 +1176,7 @@ function showVehiclePrompt() {
   loadBtn.addEventListener('click', () => loadVehicle(makeInput.value, modelInput.value, yearInput.value));
   btnRow.appendChild(loadBtn);
 
+//lets you skip straight to decision tree if not inputting a vehicle
   const skipBtn = document.createElement('button');
   skipBtn.className = 'btn';
   skipBtn.textContent = 'Skip for now';
@@ -1074,7 +1187,7 @@ function showVehiclePrompt() {
   btnRow.appendChild(skipBtn);
   el.appendChild(btnRow);
 }
-
+//handles loading a vehicle and fetching the corresponding info from OBDb
 async function loadVehicle(make, model, year) {
   DATA.vehicle = { make: (make || '').trim(), model: (model || '').trim(), year: (year || '').trim() };
   const el = clearScreen();
@@ -1098,6 +1211,7 @@ async function loadVehicle(make, model, year) {
 
 // ---------- main screen ----------
 
+//initial prompts to begin diagnosis
 function showInitialPrompt(noteHtml, noteCls) {
   const el = clearScreen();
   const v = DATA.vehicle || {};
@@ -1114,6 +1228,7 @@ function showInitialPrompt(noteHtml, noteCls) {
   const row = document.createElement('div');
   row.className = 'btnrow';
 
+//input read codes
   const codeInput = mkInput('Enter OBD-II Code');
   row.appendChild(codeInput);
 
@@ -1124,18 +1239,21 @@ function showInitialPrompt(noteHtml, noteCls) {
   row.appendChild(lookupBtn);
   codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookupCode(codeInput.value); });
 
+//describe the problem
   const descBtn = document.createElement('button');
   descBtn.className = 'btn btn-warning';
   descBtn.textContent = 'Describe Symptoms';
   descBtn.addEventListener('click', renderSymptomPrompt);
   row.appendChild(descBtn);
 
+//pid codes
   const pidBtn = document.createElement('button');
   pidBtn.className = 'btn';
   pidBtn.textContent = 'Live PID Reference (OBDb)';
   pidBtn.addEventListener('click', showPidReference);
   row.appendChild(pidBtn);
 
+//select/change vehicle
   const vehicleBtn = document.createElement('button');
   vehicleBtn.className = 'btn';
   vehicleBtn.textContent = 'Change Vehicle';
@@ -1145,6 +1263,7 @@ function showInitialPrompt(noteHtml, noteCls) {
   el.appendChild(row);
 }
 
+//shows table of live PID values and corresponding info
 function showPidReference() {
   const el = clearScreen();
   const v = DATA.vehicle || {};
@@ -1182,10 +1301,12 @@ function showPidReference() {
 }
 
 // ---------- DTC lookup ----------
-
+//lookup OBD2 codes
 function appendSearchHelper(el, resultText) {
   const v = DATA.vehicle || {};
   const query = encodeURIComponent(`${v.year || ''} ${v.make || ''} ${v.model || ''} ${resultText}`);
+
+  //provide a link to repair guide for inputted code
   const link = document.createElement('a');
   link.href = `https://www.google.com/search?q=${query}`;
   link.target = '_blank';
@@ -1193,21 +1314,27 @@ function appendSearchHelper(el, resultText) {
   link.textContent = 'Repair Guide Search \u{1F50D}';
   el.appendChild(link);
 
+  //go back to the beginning
   const restart = document.createElement('button');
   restart.className = 'btn btn-success';
   restart.textContent = 'Start New Triage';
   restart.addEventListener('click', () => showInitialPrompt());
   el.appendChild(restart);
 }
-
+//looks up the typed in code in obd_database
+//accounts for whitespace and case
 function lookupCode(rawCode) {
   const code = (rawCode || '').toUpperCase().trim();
   const res = DATA.obd_database[code];
   const el = clearScreen();
-  if (res) {
+  
+  //if found it describes the symptoms and provides link
+  if (res) { 
     el.appendChild(mkBox(`<b>${escapeHtml(code)}:</b> ${escapeHtml(res.desc)}`, 'success'));
     appendSearchHelper(el, `${code} ${res.desc}`);
-  } else {
+
+    //if not found informs you of such
+  } else { 
     el.appendChild(mkBox('Code not found. Describe the symptoms instead below.', 'danger'));
     renderSymptomPromptInto(el);
   }
@@ -1257,14 +1384,17 @@ const SYMPTOM_CATEGORIES = [
     examples: ["battery dies overnight", "car battery keeps dying every morning", "dead battery every time i park it", "parasitic draw killing my battery", "battery drains even when the car is off"] },
 ];
 
+//filters out common words that dont help with distinguishing categories
 const STOPWORDS = new Set(["the", "a", "an", "is", "are", "it", "to", "of", "and", "in", "on", "at",
   "this", "that", "my", "car", "i", "im", "its", "it's", "when", "does", "do", "with", "for", "has",
   "have", "from", "just", "really", "very", "seems", "seem", "feels", "feel", "get", "gets", "getting"]);
 
+//standardizes text inputs
 function tokenize(text) {
   return (text || "").toLowerCase().split(/[^a-z0-9']+/).filter(w => w && !STOPWORDS.has(w));
 }
 
+//frequency of tokenized words
 function termFreq(doc) {
   const counts = {};
   doc.forEach(w => { counts[w] = (counts[w] || 0) + 1; });
@@ -1276,6 +1406,8 @@ function termFreq(doc) {
 
 let _idf = null, _categoryVectors = null;
 
+//assigns weights to tokenized words based on how many categories they show up in so the model knows which words
+//actually relate to a specific diagnosis
 function buildClassifier() {
   const docs = SYMPTOM_CATEGORIES.map(c => tokenize(c.examples.join(" ")));
   const df = {};
@@ -1286,6 +1418,7 @@ function buildClassifier() {
   _categoryVectors = docs.map(doc => tfidfVector(doc));
 }
 
+//creates a vector based on the term frequency and inverse document frequency
 function tfidfVector(doc) {
   const tf = termFreq(doc);
   const vec = {};
@@ -1293,6 +1426,7 @@ function tfidfVector(doc) {
   return vec;
 }
 
+//compares similarity between two TF-IDF vectors
 function cosineSimilarity(vecA, vecB) {
   let dot = 0, normA = 0, normB = 0;
   const keys = new Set([...Object.keys(vecA), ...Object.keys(vecB)]);
@@ -1304,6 +1438,7 @@ function cosineSimilarity(vecA, vecB) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+//top level entry point which vectorizes input text and scores its TF_IDF against other categories to see what is the best match
 function classifySymptoms(rawText) {
   if (!_categoryVectors) buildClassifier();
   const queryVec = tfidfVector(tokenize(rawText));
@@ -1312,6 +1447,7 @@ function classifySymptoms(rawText) {
     .sort((a, b) => b.score - a.score);
 }
 
+//follow the path of symptom categories down the diagnostic tree
 function walkTree(path) {
   let node = DATA.diagnostic_tree;
   for (const key of path) {
@@ -1320,6 +1456,7 @@ function walkTree(path) {
   return node;
 }
 
+//renders input text into its own container
 function renderSymptomPromptInto(el) {
   const label = document.createElement('div');
   label.innerHTML = '<b>Describe the issue, in a full sentence if you can:</b>';
@@ -1344,8 +1481,10 @@ function renderSymptomPrompt() {
 }
 
 const MIN_CONFIDENT_SCORE = 0.03; // below this, treat as "no real lexical match"
-const TOP_N_MATCHES = 3;
+const TOP_N_MATCHES = 3; //shows the top 3 ranked matches
 
+//runs the classifier on what the user typed and what the top matches were
+//if there were no good matches, gives generic options for the type of problem
 function analyzeSymptoms(rawText) {
   const ranked = classifySymptoms(rawText);
   const top = ranked.slice(0, TOP_N_MATCHES).filter(r => r.score > MIN_CONFIDENT_SCORE);
@@ -1357,6 +1496,7 @@ function analyzeSymptoms(rawText) {
   renderSymptomMatches(rawText, top);
 }
 
+//create clickable buttons with confidence bar for the top matching symptoms that lead to the corresponding branch of the decision tree
 function renderSymptomMatches(rawText, top) {
   const el = clearScreen();
   el.appendChild(mkBox(`Based on "<i>${escapeHtml(rawText)}</i>", here's what this looks most like (ranked by text similarity to known symptom patterns):`, 'neutral'));
@@ -1387,12 +1527,14 @@ function renderSymptomMatches(rawText, top) {
 }
 
 // ---------- unified tree dispatcher (question / tests / conclusion) ----------
-
+//checks the node type of the next thing in the diagnostic tree and renders the corresponding graphic
 function renderNode(node) {
   if (typeof node === 'string') { renderConclusion(node); return; }
   if (node.tests) { renderTests(node); return; }
   renderQuestion(node);
 }
+
+//below functions are self explanatory for the type of node they render based on name
 
 function renderQuestion(node) {
   const el = clearScreen();
@@ -1446,6 +1588,7 @@ function renderConclusion(text) {
 }
 
 // ---------- boot ----------
+//allows the user to start over
 
 function boot() {
   document.getElementById('start-over-link').addEventListener('click', e => {
@@ -1465,6 +1608,7 @@ boot();
 """
 
 
+#build the app as described above
 def build_app(make, model, year, filename="diagnostic_assistant.html"):
     """make/model/year can be left blank - the generated app will then open
     straight to its own vehicle-selection screen instead of a pre-baked one."""
@@ -1510,45 +1654,4 @@ if __name__ == "__main__":
         print(f"Not running in Colab - open {fname} directly in your browser.")
 
 
-
-
-
-
-
-"""
-USE OF AI:
-I vibecoded this program as discussed in the class. I started on google colab hence the commits here being 
-fairly limited as I had never used github but decided to switch based on lecture/running into issues with the gui.
-
-To start I just used the built in colab AI assistant prompting it with a modified version of my project 0 idea:
-make an automotive diagnostic assistant which could be used to predict the cause of car troubles. 
-This could help provide a list of things for the user to check themselves, or provide them with a better 
-baseline idea of the issue before bringing it to a mechanic. A user will interact with the system by describing 
-the issue through a gui and then answering a series of (dynamic) questions, allowing the system to zero in on 
-a likely diagnosis. you may need to use a dataset of automotive issues and their causes, a decision tree, a 
-model to interpret user answers, and Python to code it.
-
-I then reviewed its output and prompted: 
-make a much more in depth decision tree. is there an automotive code database that can be incorporated?
-
-I was not satisfied with the results of this so I found a github database with a list of obd codes myself and 
-prompted it to implement https://github.com/obdb
-
-I then prompted it about 10 times with the output of various different tests asking it to continue with a decision 
-tree when I felt it stopped with too broad a solution, asked it to implement a feature that would search for online
-repair guides when the final issue was found, and fixing various bugs and issues. I also prompted it to start by asking
-for a trouble code. I then prompted it to allow for a text description of symptoms rather than relying entirely on generic
-buttons. I then prompted it several more times to fix errors, try and improve the depth of diagnosis, and get it to properly 
-use the github database I had found. 
-
-I hit a roadblock asking it to create a popout gui rather than one at the bottom of the 
-code where it would just compile indefinitely. At this point I switched to claude to further refine it.
-I prompted claude to fix the popout gui with notes on what I wanted the flow/appearance to be like. The popout still
-would not work however and there was a consistent issue with buttons needing to be clicked multiple times before
-text boxes or the next thing would appear. It identified it as a colab issue which is when I switched to github, having it 
-generate the initial commit. The rest of the commits also used Claude, limited by its usage limits. I asked it to add the
-confidence ranked symptom classification to improve intelligence and prompted it further to improve the decision tree so that
-it continued until a single problem was identified, instead of terminating with a short list of possible issues. Comments, 
-rewriting of the readme, etc. past the third commit were done manually by me
-"""
 
