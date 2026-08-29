@@ -24,11 +24,15 @@ tool would use to verify each test step, pulled from the community
   known symptom categories using **TF-IDF vectorization and cosine
   similarity** (see "How the symptom classifier works" below), showing
   the top 2-3 candidates with confidence percentages rather than
-  silently guessing one. Picking a match routes you into a multi-level
-  sequence of concrete tests (several branches go 4-5 questions deep);
-  each answer narrows things down until it reaches a specific root cause
-  and fix. Covers engine starting issues, four performance-issue
-  categories, brakes, steering, and electrical faults.
+  silently guessing one. Picking a match routes you into a sequence of
+  concrete tests - some branches run 7-8 questions deep - and **every
+  path ends on one specific named cause and fix, never a list of
+  possibilities**. Where an earlier version of this tree would end with
+  "it's a vacuum leak or a failing injector, go check both," it now runs
+  an actual differentiating test (e.g. a vacuum-leak spray test) and
+  states which one it is. 107 distinct root causes are reachable this
+  way across engine starting issues, four performance-issue categories,
+  brakes, steering, and electrical faults.
 - **Live PID reference** - shows the actual OBD-II command and decoding
   formula for the loaded vehicle's sensors, matched automatically against
   test steps in the decision tree (e.g. a "Battery Voltage" test step

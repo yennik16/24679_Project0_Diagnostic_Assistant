@@ -157,15 +157,55 @@ DIAGNOSTIC_TREE = {
                                     "check": "Clear-Flood Start",
                                     "instruction": "Hold the throttle fully open and crank for about 10 seconds. Does it start?",
                                     "options": {
-                                        "Yes": "Flooded engine, likely a stuck-open injector or over-rich cold-start enrichment. Have the injector tested/cleaned and check the fuel pressure regulator.",
+                                        "Yes": {
+                                            "diagnosis": "Flooding Source Check",
+                                            "tests": [{
+                                                "check": "Injector Wet-Plug Test",
+                                                "instruction": "Remove the spark plug from one cylinder while the engine is still flooded. Does that plug smell heavily of raw fuel or look visibly wet?",
+                                                "options": {
+                                                    "Yes, wet with fuel": "Stuck-open fuel injector flooding that cylinder. Replace or professionally clean/test the injector.",
+                                                    "No, dry/normal": "Over-rich cold-start enrichment, likely from a coolant temperature sensor reading colder than actual. Test the sensor against actual engine temperature and replace it if inaccurate."
+                                                }
+                                            }]
+                                        },
                                         "No": {
                                             "diagnosis": "Fuel/Ignition Cross-Check",
                                             "tests": [{
                                                 "check": "Spark Test",
                                                 "instruction": "Pull a spark plug, ground it against bare metal on the block, and crank while watching for a blue spark. Do you see one?",
                                                 "options": {
-                                                    "No": "Ignition system fault (coil, crank/cam sensor, or ignition control module) combined with excess fuel. Test the crank/cam sensor signal and coil resistance.",
-                                                    "Yes": "Fuel delivery is over-rich despite good spark - likely a stuck injector or failed fuel pressure regulator. Check fuel pressure and injector leak-down."
+                                                    "No": {
+                                                        "diagnosis": "Ignition Component Check",
+                                                        "tests": [{
+                                                            "check": "Coil Resistance Check",
+                                                            "instruction": "Using a multimeter, measure the ignition coil's primary resistance and compare to spec. Is it out of spec?",
+                                                            "options": {
+                                                                "Yes, out of spec": "Failed ignition coil. Replace the coil.",
+                                                                "No, in spec": {
+                                                                    "diagnosis": "Sensor vs Module Check",
+                                                                    "tests": [{
+                                                                        "check": "Crank Sensor Signal Test",
+                                                                        "instruction": "Using a scan tool or scope, check for a crank position sensor signal while cranking. Is a clean signal present?",
+                                                                        "options": {
+                                                                            "No signal": "Failed crankshaft position sensor. Replace the sensor.",
+                                                                            "Signal present": "Coil and sensor both test fine, so the fault is in the ignition control module. Replace the ignition control module."
+                                                                        }
+                                                                    }]
+                                                                }
+                                                            }
+                                                        }]
+                                                    },
+                                                    "Yes": {
+                                                        "diagnosis": "Fuel Delivery Check",
+                                                        "tests": [{
+                                                            "check": "Regulator Vacuum Pinch Test",
+                                                            "instruction": "With a fuel pressure gauge connected, briefly pinch off the vacuum line to the fuel pressure regulator while watching the gauge. Does pressure rise noticeably?",
+                                                            "options": {
+                                                                "Yes, pressure rises": "Fuel pressure regulator's vacuum diaphragm is leaking, letting excess fuel into the intake. Replace the fuel pressure regulator.",
+                                                                "No change": "Regulator is fine, so a stuck-open fuel injector is dumping excess fuel. Replace or professionally clean/test the injector."
+                                                            }
+                                                        }]
+                                                    }
                                                 }
                                             }]
                                         }
@@ -182,7 +222,17 @@ DIAGNOSTIC_TREE = {
                                             "question": "Check the crank position sensor connector and ignition coil connections for corrosion or looseness. Any visible damage?",
                                             "options": {
                                                 "Yes, damaged/loose wiring": "Wiring or connector fault at the crank sensor or coil pack. Clean/reseat or repair, then retest for spark.",
-                                                "No visible damage": "Failed crankshaft/camshaft position sensor or ignition control module. Test sensor signal against spec and replace if absent."
+                                                "No visible damage": {
+                                                    "diagnosis": "Sensor vs Module Check",
+                                                    "tests": [{
+                                                        "check": "Crank/Cam Sensor Signal Test",
+                                                        "instruction": "Using a scan tool or scope, check for a crank/cam position sensor signal while cranking. Is a clean signal present?",
+                                                        "options": {
+                                                            "No signal": "Failed crankshaft or camshaft position sensor (whichever the scan tool flags). Replace the faulty sensor.",
+                                                            "Signal present": "Sensor signal is present but spark still isn't happening. Ignition control module fault - replace the module."
+                                                        }
+                                                    }]
+                                                }
                                             }
                                         },
                                         "Yes": {
@@ -191,8 +241,58 @@ DIAGNOSTIC_TREE = {
                                                 "check": "Fuel Pump Prime",
                                                 "instruction": "Turn the key to 'ON' (not crank) and listen near the tank for the fuel pump priming hum (2-3 seconds). Do you hear it?",
                                                 "options": {
-                                                    "No": "Fuel pump not priming. Check the fuel pump fuse and relay first, then voltage at the pump connector; replace the pump if it has power but doesn't run.",
-                                                    "Yes": "Fuel reaches the rail but isn't combusting properly - test fuel pressure against spec, then verify timing marks/timing belt or chain condition if pressure is normal."
+                                                    "No": {
+                                                        "diagnosis": "Pump Circuit Check",
+                                                        "tests": [{
+                                                            "check": "Fuse and Relay Swap",
+                                                            "instruction": "Check the fuel pump fuse, and swap the fuel pump relay with an identical relay from elsewhere in the fuse box. Does this fix it, or does one test bad?",
+                                                            "options": {
+                                                                "Yes, fuse or relay bad": "Blown fuel pump fuse or a failed relay. Replace whichever tested bad.",
+                                                                "No, both test fine": {
+                                                                    "diagnosis": "Pump Voltage Check",
+                                                                    "tests": [{
+                                                                        "check": "Voltage at Pump Connector",
+                                                                        "instruction": "Have someone crank the engine while you check for voltage at the fuel pump's electrical connector. Is voltage present?",
+                                                                        "options": {
+                                                                            "Yes, voltage present": "Fuel pump has failed internally (it has power but won't run). Replace the fuel pump.",
+                                                                            "No voltage": "Wiring fault between the relay and the fuel pump. Repair or replace the damaged wiring or connector."
+                                                                        }
+                                                                    }]
+                                                                }
+                                                            }
+                                                        }]
+                                                    },
+                                                    "Yes": {
+                                                        "diagnosis": "Pressure and Timing Check",
+                                                        "tests": [{
+                                                            "check": "Fuel Pressure Test",
+                                                            "instruction": "Connect a fuel pressure gauge to the rail and check against spec while cranking. Is pressure within spec?",
+                                                            "options": {
+                                                                "No, out of spec": {
+                                                                    "diagnosis": "Pressure Source Check",
+                                                                    "tests": [{
+                                                                        "check": "Regulator Vacuum Pinch Test",
+                                                                        "instruction": "Pinch off the vacuum line to the fuel pressure regulator while watching the gauge. Does pressure rise?",
+                                                                        "options": {
+                                                                            "Yes, pressure rises": "Fuel pressure regulator is faulty. Replace the regulator.",
+                                                                            "No change": "Regulator is fine, so fuel pump output is weak. Replace the fuel pump."
+                                                                        }
+                                                                    }]
+                                                                },
+                                                                "Yes, in spec": {
+                                                                    "diagnosis": "Timing Check",
+                                                                    "tests": [{
+                                                                        "check": "Timing Marks Check",
+                                                                        "instruction": "Rotate the engine by hand (or use a timing light if it will briefly run) and check that the timing marks align correctly. Are they aligned?",
+                                                                        "options": {
+                                                                            "No, misaligned": "Timing belt or chain has jumped or stretched. Replace the timing belt/chain and reset timing.",
+                                                                            "Yes, aligned": "Fuel and timing both check out, so suspect a failed injector driver circuit or ECU fault preventing injector pulse. Test injector pulse with a noid light and check the ECU's injector driver circuit."
+                                                                        }
+                                                                    }]
+                                                                }
+                                                            }
+                                                        }]
+                                                    }
                                                 }
                                             }]
                                         }
@@ -215,13 +315,23 @@ DIAGNOSTIC_TREE = {
                                             "question": "Inspect the battery terminals and cable ends for corrosion or looseness. Found any?",
                                             "options": {
                                                 "Yes": "Corroded/loose battery connection causing voltage drop under cranking load. Clean terminals and retorque connections.",
-                                                "No": "Battery voltage is fine, so the starter motor is likely drawing excess current or has worn brushes. Bench-test or replace the starter."
+                                                "No": "Battery voltage is fine and connections are clean, so the starter motor itself is failing internally. Bench-test or replace the starter."
                                             }
                                         }
                                     }
                                 }]
                             },
-                            "No, lights stay bright": "Mechanical drag in the starter or engine, not a battery/voltage issue. Check the starter for binding and confirm the engine turns freely by hand."
+                            "No, lights stay bright": {
+                                "diagnosis": "Mechanical Drag Check",
+                                "tests": [{
+                                    "check": "Free-Turn Check",
+                                    "instruction": "With the spark plugs removed, try turning the engine over by hand (a socket on the crank pulley bolt works). Does it turn freely?",
+                                    "options": {
+                                        "No, binds/resists": "Internal engine mechanical binding (a seized component). This is a serious internal problem - have a shop inspect further before attempting to start again.",
+                                        "Yes, turns freely": "The engine itself is fine, so the drag is in the starter motor binding internally. Replace the starter motor."
+                                    }
+                                }]
+                            }
                         }
                     },
                     "Rapid clicking, doesn't crank": {
@@ -234,25 +344,70 @@ DIAGNOSTIC_TREE = {
                                 "No, holds voltage": {
                                     "question": "If safely accessible, have someone lightly tap the starter housing with a wrench while you turn the key. Does it start?",
                                     "options": {
-                                        "Yes": "Worn starter motor brushes or solenoid contacts. Replace the starter motor/solenoid.",
-                                        "No": "Starter relay failure or a bad ground strap. Check the starter relay and main ground strap between engine and chassis."
+                                        "Yes": "Worn starter motor brushes or solenoid contacts. Replace the starter motor (the solenoid is usually integrated).",
+                                        "No": {
+                                            "diagnosis": "Relay vs Ground Check",
+                                            "tests": [{
+                                                "check": "Relay Swap Test",
+                                                "instruction": "Swap the starter relay with an identical one from the fuse box. Does the engine now crank normally?",
+                                                "options": {
+                                                    "Yes": "Failed starter relay. Replace the relay.",
+                                                    "No": "Relay wasn't the issue - a bad ground strap between the engine and chassis is the cause. Clean/replace the ground strap connection."
+                                                }
+                                            }]
+                                        }
                                     }
                                 }
                             }
                         }]
                     },
                     "Nothing at all (silent)": {
-                        "question": "Do the dash lights and other accessories work normally?",
-                        "options": {
-                            "No, everything's dead": "Dead battery, blown main fuse, or a disconnected/corroded battery cable. Check main fuses and battery cable connections first.",
-                            "Yes, dash/accessories work": {
-                                "question": "If it's an automatic, try starting in Park and then in Neutral. Does it start in one but not the other?",
-                                "options": {
-                                    "Yes, one but not the other": "Faulty neutral safety switch or a misadjusted shift linkage. Inspect/adjust the linkage; test/replace the switch.",
-                                    "Doesn't start in either": "Ignition switch failure or a bad starter relay/fuse. Check the starter relay/fuse, then test ignition switch continuity in 'start.'"
+                        "diagnosis": "Dead Circuit Check",
+                        "tests": [{
+                            "check": "Battery Terminal Voltage",
+                            "instruction": "With a multimeter directly on the battery posts (not the cables), do you read close to 12V?",
+                            "options": {
+                                "No, near 0V": "Battery itself is dead or has an internal fault. Charge and load-test; replace if it fails.",
+                                "Yes, near 12V": {
+                                    "diagnosis": "Cable/Fuse vs Switch Check",
+                                    "tests": [{
+                                        "check": "Cable and Fuse Check",
+                                        "instruction": "Check the main fuse/fusible link near the battery, and inspect the battery cable ends for corrosion or looseness. Which do you find - a corroded/loose cable, a blown fuse, or neither?",
+                                        "options": {
+                                            "Corroded/loose cable": "Corroded or loose battery cable connection blocking power flow. Clean the terminals and retorque the connection.",
+                                            "Blown fuse": "Blown main fuse or fusible link near the battery. Replace it (and check for a short if it blows again).",
+                                            "Neither - both look fine": {
+                                                "question": "If it's an automatic, try starting in Park and then in Neutral. Does it start in one but not the other?",
+                                                "options": {
+                                                    "Yes, one but not the other": {
+                                                        "diagnosis": "Linkage vs Switch Check",
+                                                        "tests": [{
+                                                            "check": "Linkage Adjustment Check",
+                                                            "instruction": "Visually check the shift linkage between the shifter and transmission for looseness or misadjustment. Is it loose or misadjusted?",
+                                                            "options": {
+                                                                "Yes, loose/misadjusted": "Misadjusted shift linkage preventing the neutral safety switch from engaging correctly. Adjust the linkage.",
+                                                                "No, linkage is correct": "Linkage is fine, so it's a faulty neutral safety switch. Test and replace the switch."
+                                                            }
+                                                        }]
+                                                    },
+                                                    "Doesn't start in either": {
+                                                        "diagnosis": "Relay vs Switch Check",
+                                                        "tests": [{
+                                                            "check": "Relay and Fuse Check",
+                                                            "instruction": "Check the starter relay and its fuse (swap with an identical relay if possible). Does this fix it, or does one test bad?",
+                                                            "options": {
+                                                                "Yes, fixed it": "Blown starter fuse or failed starter relay. Replace whichever tested bad.",
+                                                                "No change": "Relay and fuse are fine but there's no continuity to start - ignition switch failure. Replace the ignition switch."
+                                                            }
+                                                        }]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }]
                                 }
                             }
-                        }
+                        }]
                     }
                 }
             },
@@ -265,7 +420,17 @@ DIAGNOSTIC_TREE = {
                             "check": "Cold vs Warm Behavior",
                             "instruction": "Does the hesitation happen mostly when the engine is cold, or at all temperatures?",
                             "options": {
-                                "Mostly when cold": "Weak cold-start fuel enrichment, often from a coolant temperature sensor reading incorrectly. Compare the sensor reading to actual engine temperature.",
+                                "Mostly when cold": {
+                                    "diagnosis": "Coolant Sensor Check",
+                                    "tests": [{
+                                        "check": "Sensor Accuracy Check",
+                                        "instruction": "Compare the coolant temperature sensor's reading (via a scan tool) to the engine's actual temperature. Does the sensor read noticeably colder than actual?",
+                                        "options": {
+                                            "Yes, reads colder": "Faulty coolant temperature sensor causing excess cold-start enrichment. Replace the sensor.",
+                                            "No, reads accurately": "Sensor is accurate, so check for a vacuum leak that's worse when cold - inspect vacuum hoses and intake gaskets for cracks that seal better once warm."
+                                        }
+                                    }]
+                                },
                                 "All temperatures": {
                                     "diagnosis": "Air/Fuel Metering Check",
                                     "tests": [{
@@ -276,8 +441,28 @@ DIAGNOSTIC_TREE = {
                                             "Filter looks fine": {
                                                 "question": "Does the hesitation feel like a gradual power loss, or a sharp stumble/jerk?",
                                                 "options": {
-                                                    "Gradual power loss": "Fuel delivery can't keep up under load - commonly a clogged fuel filter or a fuel pump losing pressure. Test fuel pressure under load.",
-                                                    "Sharp stumble/jerk": "Dirty/failing MAF sensor or a vacuum leak. Clean the MAF sensor and inspect vacuum lines/intake gaskets for cracks."
+                                                    "Gradual power loss": {
+                                                        "diagnosis": "Fuel Supply Check",
+                                                        "tests": [{
+                                                            "check": "Fuel Pressure Under Load",
+                                                            "instruction": "With a fuel pressure gauge connected, accelerate hard and watch the gauge. Does pressure drop significantly under load?",
+                                                            "options": {
+                                                                "Yes, drops under load": "Fuel pump losing pressure under demand. Replace the fuel pump.",
+                                                                "No, stays steady": "Pressure holds at the pump, so the restriction is downstream - a clogged fuel filter. Replace the fuel filter."
+                                                            }
+                                                        }]
+                                                    },
+                                                    "Sharp stumble/jerk": {
+                                                        "diagnosis": "MAF vs Vacuum Leak Check",
+                                                        "tests": [{
+                                                            "check": "MAF Cleaning Test",
+                                                            "instruction": "Clean the MAF sensor with proper MAF cleaner and clear any adaptations. Does the stumble go away?",
+                                                            "options": {
+                                                                "Yes, resolved": "Dirty MAF sensor was the cause. If it recurs, replace the MAF sensor.",
+                                                                "No change": "MAF wasn't the issue - a vacuum leak is the cause. Inspect vacuum lines and intake gaskets for cracks (a smoke test pinpoints the exact leak location)."
+                                                            }
+                                                        }]
+                                                    }
                                                 }
                                             }
                                         }
@@ -303,7 +488,17 @@ DIAGNOSTIC_TREE = {
                                                 "Water pump area": "Water pump shaft seal failure. Replace the water pump."
                                             }
                                         },
-                                        "No visible leak": "Possible internal leak (head gasket). Check for white/sweet-smelling exhaust and a milky film on the oil dipstick; pressure-test the cooling system."
+                                        "No visible leak": {
+                                            "diagnosis": "Internal Leak Check",
+                                            "tests": [{
+                                                "check": "Head Gasket Check",
+                                                "instruction": "Check for white/sweet-smelling exhaust smoke and a milky film on the oil dipstick. Do you see either sign?",
+                                                "options": {
+                                                    "Yes": "Blown head gasket allowing coolant into the combustion chamber or oil. This needs professional repair - do not keep driving.",
+                                                    "No": "No head gasket signs yet coolant is disappearing - have a shop pressure-test the cooling system to find a hidden leak point (heater core or a leak that only shows under pressure)."
+                                                }
+                                            }]
+                                        }
                                     }
                                 },
                                 "Yes, full": {
@@ -316,14 +511,34 @@ DIAGNOSTIC_TREE = {
                                                 "question": "Check the fan fuse and relay. Is either blown/faulty?",
                                                 "options": {
                                                     "Yes, blown/faulty": "Blown fan fuse or a bad fan relay. Replace and confirm the fan now runs.",
-                                                    "No, fuse/relay OK": "Failed fan motor, or a coolant temp sensor/switch not signaling the fan. Power the fan directly from the battery to test it."
+                                                    "No, fuse/relay OK": {
+                                                        "diagnosis": "Fan Motor vs Sensor Check",
+                                                        "tests": [{
+                                                            "check": "Direct Power Test",
+                                                            "instruction": "Disconnect the fan and apply battery power directly to it. Does the fan spin?",
+                                                            "options": {
+                                                                "Yes, spins": "Fan motor is fine, so a coolant temperature sensor/switch isn't signaling it to turn on. Test and replace the faulty sensor/switch.",
+                                                                "No, doesn't spin": "Fan motor itself has failed. Replace the fan motor."
+                                                            }
+                                                        }]
+                                                    }
                                                 }
                                             },
                                             "Yes": {
                                                 "question": "Feel the upper radiator hose once the temp gauge is rising. Does it get hot along with the engine, or stay cool?",
                                                 "options": {
                                                     "Stays cool": "Thermostat stuck closed, preventing coolant circulation. Replace the thermostat.",
-                                                    "Gets hot normally": "Points to a water pump impeller slipping (spinning but not pumping) or a partially clogged radiator core. Check pump impeller and radiator flow."
+                                                    "Gets hot normally": {
+                                                        "diagnosis": "Pump vs Radiator Flow Check",
+                                                        "tests": [{
+                                                            "check": "Radiator Flow Check",
+                                                            "instruction": "With the engine running and the radiator cap off (carefully, only when cool), check whether you see strong coolant circulation in the radiator neck. Is flow strong?",
+                                                            "options": {
+                                                                "Yes, strong flow": "Flow looks fine at the radiator, so the water pump impeller is slipping internally despite spinning (common with plastic impellers). Replace the water pump.",
+                                                                "No, weak/no flow": "Radiator core is clogged internally, restricting flow. Flush or replace the radiator."
+                                                            }
+                                                        }]
+                                                    }
                                                 }
                                             }
                                         }
@@ -338,15 +553,45 @@ DIAGNOSTIC_TREE = {
                             "check": "Check Engine Light",
                             "instruction": "Does the check engine light come on, and if so, does it flash or stay steady?",
                             "options": {
-                                "Yes, flashing": "Active misfire being detected by the ECU - a flashing light warns of catalytic converter damage risk. Stop driving hard soon; scan for the specific cylinder code (P030x) and check that cylinder's plug/coil/injector.",
+                                "Yes, flashing": "Active misfire being detected by the ECU - a flashing light warns of catalytic converter damage risk. Stop driving hard soon; scan for the specific cylinder code (P030x) and check that cylinder's plug, coil, and injector (see the OBD-II Scanner tab).",
                                 "Yes, steady": {
                                     "question": "How long since the spark plugs were last replaced?",
                                     "options": {
-                                        "Over ~60,000 mi / 100,000 km, or unknown": "Worn spark plugs and/or aging ignition coils are the most likely cause. Replace spark plugs and inspect coil packs.",
-                                        "Recently replaced": "Since plugs are fresh, this points to a vacuum leak or a dirty/failing fuel injector instead. Inspect intake gaskets/vacuum hoses and consider an injector cleaning."
+                                        "Over ~60,000 mi / 100,000 km, or unknown": {
+                                            "diagnosis": "Plugs vs Coils Check",
+                                            "tests": [{
+                                                "check": "Post-Plug-Replacement Check",
+                                                "instruction": "Replace the spark plugs first (cheaper and easier than coils). Does the rough idle/misfire go away?",
+                                                "options": {
+                                                    "Yes, resolved": "Worn spark plugs were the cause - resolved by replacing them.",
+                                                    "No change": "Spark plugs weren't the issue - an ignition coil is failing. Test coil resistance on each cylinder and replace the faulty coil(s)."
+                                                }
+                                            }]
+                                        },
+                                        "Recently replaced": {
+                                            "diagnosis": "Vacuum Leak vs Injector Check",
+                                            "tests": [{
+                                                "check": "Vacuum Leak Spray Test",
+                                                "instruction": "With the engine idling, spray a small amount of carb/brake cleaner around intake gaskets and vacuum hose connections (in a well-ventilated area, away from anything hot). Does the idle change (rev up or smooth out) when you spray near a particular spot?",
+                                                "options": {
+                                                    "Yes, idle changes at a spot": "Vacuum leak found at that location. Repair or replace the leaking hose or gasket.",
+                                                    "No change anywhere": "No vacuum leak found, so a fuel injector is dirty or failing. Have the injector professionally cleaned/flow-tested, and replace if it fails."
+                                                }
+                                            }]
+                                        }
                                     }
                                 },
-                                "No light at all": "Rough idle without a stored code often points to a dirty throttle body or idle air control valve. Clean the throttle body and IAC valve."
+                                "No light at all": {
+                                    "diagnosis": "Throttle Body Check",
+                                    "tests": [{
+                                        "check": "Post-Cleaning Check",
+                                        "instruction": "Clean the throttle body and idle air control (IAC) valve together, since they're related and cheap to service. Did the idle improve?",
+                                        "options": {
+                                            "Yes, improved": "Carbon buildup in the throttle body/IAC valve was causing the rough idle - resolved by cleaning.",
+                                            "No change": "Cleaning didn't help, so check for a vacuum leak instead - inspect vacuum hoses and intake gaskets for cracks."
+                                        }
+                                    }]
+                                }
                             }
                         }]
                     },
@@ -356,12 +601,52 @@ DIAGNOSTIC_TREE = {
                             "Changes/worse with speed": {
                                 "question": "Do you feel it mainly through the steering wheel, the seat/floor, or both?",
                                 "options": {
-                                    "Steering wheel mainly": "Front wheel imbalance or a bent front rim. Have the front wheels balanced and inspected.",
-                                    "Seat/floor mainly": "Rear wheel imbalance, or a driveshaft/CV joint issue. Balance rear wheels and inspect the driveline.",
-                                    "Both": "Uneven tire wear or an alignment issue affecting multiple wheels. Inspect tire wear and get a full alignment."
+                                    "Steering wheel mainly": {
+                                        "diagnosis": "Balance vs Rim Check",
+                                        "tests": [{
+                                            "check": "Wheel Balance Test",
+                                            "instruction": "Have the front wheels balanced (quick and inexpensive). Does the vibration go away?",
+                                            "options": {
+                                                "Yes, resolved": "Wheel imbalance was the cause - resolved by balancing.",
+                                                "No, still vibrates": "Balancing didn't fix it, meaning a bent rim is the cause even after 'correcting' for it. Inspect the rim for visible bending or have it checked on a lathe, and replace if bent."
+                                            }
+                                        }]
+                                    },
+                                    "Seat/floor mainly": {
+                                        "diagnosis": "Driveline Check",
+                                        "tests": [{
+                                            "check": "CV/Driveshaft Inspection",
+                                            "instruction": "Inspect CV joint boots for tears or grease leakage, and check the driveshaft for play at the U-joints. Which shows a problem?",
+                                            "options": {
+                                                "CV joint boot": "Torn CV joint boot has let the joint wear/fail. Replace the CV axle.",
+                                                "U-joint/driveshaft play": "Worn universal joint causing driveline vibration. Replace the U-joint."
+                                            }
+                                        }]
+                                    },
+                                    "Both": {
+                                        "diagnosis": "Tire Wear vs Alignment Check",
+                                        "tests": [{
+                                            "check": "Tire Wear Pattern Check",
+                                            "instruction": "Inspect tread wear patterns on all four tires. Do you see uneven or cupped wear?",
+                                            "options": {
+                                                "Yes, uneven/cupped wear": "Uneven tire wear is causing the vibration. Replace the affected tire(s) - then get an alignment, since bad alignment is usually what caused the uneven wear in the first place.",
+                                                "No, wear looks even": "Tread wear is even, so get a full wheel alignment to address the vibration directly."
+                                            }
+                                        }]
+                                    }
                                 }
                             },
-                            "Stays the same regardless of speed": "Not wheel/tire related - likely a worn engine or transmission mount. Inspect mounts for cracking or excessive play."
+                            "Stays the same regardless of speed": {
+                                "diagnosis": "Mount Check",
+                                "tests": [{
+                                    "check": "Mount Inspection",
+                                    "instruction": "With the engine off, visually inspect the engine and transmission mounts for cracking, separation, or excessive give. Which mount shows damage?",
+                                    "options": {
+                                        "Engine mount": "Worn or broken engine mount. Replace the engine mount.",
+                                        "Transmission mount": "Worn or broken transmission mount. Replace the transmission mount."
+                                    }
+                                }]
+                            }
                         }
                     }
                 }
@@ -387,11 +672,28 @@ DIAGNOSTIC_TREE = {
                                         "Low": {
                                             "question": "Inspect each wheel for fluid staining or wetness at the caliper/wheel cylinder. Any leak visible?",
                                             "options": {
-                                                "Yes": "Leaking caliper, wheel cylinder, or brake line. Repair/replace the leaking component and bleed the system.",
-                                                "No visible leak": "Fluid loss without an external leak suggests the master cylinder is bypassing internally. Pressure-test and replace if bypassing."
+                                                "Yes": {
+                                                    "question": "At the wheel with the wet spot, is the fluid coming from the caliper itself, a wheel cylinder (drum brakes), or a visible line/hose?",
+                                                    "options": {
+                                                        "Caliper": "Leaking brake caliper (piston seal failure). Rebuild or replace the caliper.",
+                                                        "Wheel cylinder": "Leaking wheel cylinder (drum brakes). Replace the wheel cylinder.",
+                                                        "Line or hose": "Leaking brake line or hose. Replace the damaged line/hose."
+                                                    }
+                                                },
+                                                "No visible leak": "Fluid loss without an external leak suggests the master cylinder is bypassing internally. Pressure-test and replace the master cylinder if it's bypassing."
                                             }
                                         },
-                                        "Normal": "Air trapped in the lines without an active leak, or a soft/ballooning rubber brake hose. Bleed all four brakes and inspect flexible hoses."
+                                        "Normal": {
+                                            "diagnosis": "Air vs Hose Check",
+                                            "tests": [{
+                                                "check": "Post-Bleed Check",
+                                                "instruction": "Bleed all four brakes thoroughly. Does the pedal firm up afterward?",
+                                                "options": {
+                                                    "Yes, firms up": "Trapped air was the cause - resolved by bleeding.",
+                                                    "No, still soft": "Pedal is still soft after a proper bleed, so a rubber brake hose is ballooning under pressure. Inspect and replace the swelling hose."
+                                                }
+                                            }]
+                                        }
                                     }
                                 }]
                             }
@@ -404,8 +706,24 @@ DIAGNOSTIC_TREE = {
                             "Mainly from higher speed": {
                                 "question": "Do you also feel a wobble in the steering wheel, not just the pedal?",
                                 "options": {
-                                    "Yes, steering wheel too": "Front rotor warp combined with possible front wheel bearing play. Inspect both.",
-                                    "Only in the pedal": "Rear rotor warp or an out-of-round rear brake drum. Inspect the rear brake components."
+                                    "Yes, steering wheel too": {
+                                        "diagnosis": "Rotor vs Bearing Check",
+                                        "tests": [{
+                                            "check": "Wheel Bearing Play Check",
+                                            "instruction": "With the wheel off the ground, grab the tire at 12 and 6 o'clock and check for play/looseness in the wheel bearing. Is there noticeable play?",
+                                            "options": {
+                                                "Yes, noticeable play": "Worn front wheel bearing. Replace the wheel bearing.",
+                                                "No play": "Bearing is fine, so it's rotor warp alone. Resurface or replace the front rotors."
+                                            }
+                                        }]
+                                    },
+                                    "Only in the pedal": {
+                                        "question": "Are the rear brakes disc (rotors) or drum?",
+                                        "options": {
+                                            "Disc": "Rear rotor warp. Resurface or replace the rear rotors.",
+                                            "Drum": "Out-of-round rear brake drum. Resurface or replace the drum."
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -417,8 +735,14 @@ DIAGNOSTIC_TREE = {
                             "Dropped suddenly": {
                                 "question": "Check under the car and at each wheel for fresh brake fluid. Found a leak?",
                                 "options": {
-                                    "Yes": "Ruptured brake line/hose or a caliper/wheel cylinder blowout. Vehicle is unsafe to drive - repair and fully bleed before driving again.",
-                                    "No visible leak": "Internal seal failure in the master cylinder or a failed proportioning valve. Have the brake system inspected immediately; do not drive."
+                                    "Yes": {
+                                        "question": "Is the leak from a brake line/hose, or from a caliper/wheel cylinder at one wheel?",
+                                        "options": {
+                                            "Line/hose": "Ruptured brake line or hose. Vehicle is unsafe to drive - replace the damaged line/hose and fully bleed before driving again.",
+                                            "Caliper/wheel cylinder": "Blown caliper or wheel cylinder seal at that wheel. Vehicle is unsafe to drive - replace the caliper or wheel cylinder and fully bleed before driving again."
+                                        }
+                                    },
+                                    "No visible leak": "Internal seal failure in the master cylinder or a failed proportioning valve - this needs a shop's brake pressure gauge to isolate safely. Have the brake system inspected immediately; do not drive."
                                 }
                             }
                         }
@@ -438,13 +762,14 @@ DIAGNOSTIC_TREE = {
                                     "instruction": "Check the power steering fluid reservoir. Is the level low?",
                                     "options": {
                                         "Low": {
-                                            "question": "Look for fluid stains near the steering rack, pump, or hoses. Any leak found?",
+                                            "question": "Where do you see fluid stains - near the steering rack, the pump, or a hose?",
                                             "options": {
-                                                "Yes": "Leaking power steering hose, rack seal, or pump seal. Repair the leak, then refill and bleed.",
-                                                "No visible leak": "Fluid is low without an obvious leak, suggesting a slow seep at the pump shaft seal. Top off and monitor."
+                                                "Steering rack": "Leaking steering rack seal. Replace or rebuild the steering rack.",
+                                                "Pump": "Leaking power steering pump seal. Replace the pump or its seal.",
+                                                "Hose": "Leaking power steering hose. Replace the damaged hose."
                                             }
                                         },
-                                        "Normal": "Fluid level is fine, so this points to a failing power steering pump or a slipping/worn serpentine belt. Inspect belt tension and pump for noise."
+                                        "Normal": "Fluid is low without an obvious leak, suggesting a slow seep at the pump shaft seal. Top off and monitor."
                                     }
                                 }]
                             },
@@ -461,8 +786,28 @@ DIAGNOSTIC_TREE = {
                                 "Yes, pressures are even": {
                                     "question": "Has the vehicle hit a significant pothole or curb recently?",
                                     "options": {
-                                        "Yes": "Alignment change or a bent suspension component from the impact. Get an alignment check and inspect suspension for damage.",
-                                        "No": "Gradual alignment drift, or a front brake caliper dragging on one side. Get a wheel alignment and check for a dragging caliper."
+                                        "Yes": {
+                                            "diagnosis": "Suspension vs Alignment Check",
+                                            "tests": [{
+                                                "check": "Suspension Visual Check",
+                                                "instruction": "Visually inspect tie rods, control arms, and the strut/spring near the impact side for bending or damage. Do you see visible damage?",
+                                                "options": {
+                                                    "Yes, damage visible": "Bent suspension component from the impact. Replace the damaged part (tie rod, control arm, etc.).",
+                                                    "No visible damage": "No damage found, so it's an alignment change from the impact. Get a wheel alignment."
+                                                }
+                                            }]
+                                        },
+                                        "No": {
+                                            "diagnosis": "Alignment vs Caliper Check",
+                                            "tests": [{
+                                                "check": "Caliper Drag Check",
+                                                "instruction": "After a short drive, carefully feel the temperature of each front wheel/rotor - they should be similarly warm. Is one noticeably hotter?",
+                                                "options": {
+                                                    "Yes, one hotter": "Dragging brake caliper on that side, pulling the car toward it. Inspect and free up or replace the caliper.",
+                                                    "No, similar temps": "No dragging caliper, so it's gradual alignment drift. Get a wheel alignment."
+                                                }
+                                            }]
+                                        }
                                     }
                                 }
                             }
@@ -484,7 +829,17 @@ DIAGNOSTIC_TREE = {
                         "question": "Check the main lighting fuse in the fuse box. Is it blown?",
                         "options": {
                             "Yes, blown": "Blown main lighting fuse, possibly from a short. Replace the fuse; if it blows again, look for chafed wiring.",
-                            "No, fuse is fine": "Likely a failed headlight switch or a body control module fault. Test the switch and check BCM lighting outputs."
+                            "No, fuse is fine": {
+                                "diagnosis": "Switch vs BCM Check",
+                                "tests": [{
+                                    "check": "Switch Continuity Test",
+                                    "instruction": "Test the headlight switch for continuity in the 'on' position with a multimeter. Does it show continuity?",
+                                    "options": {
+                                        "Yes, continuity is fine": "Switch is fine, so it's a Body Control Module (BCM) fault. Have the BCM's lighting outputs tested.",
+                                        "No continuity": "Failed headlight switch. Replace the switch."
+                                    }
+                                }]
+                            }
                         }
                     }
                 }
@@ -492,12 +847,32 @@ DIAGNOSTIC_TREE = {
             "Interior Electronics": {
                 "question": "Which accessories are affected - just one, or several at once?",
                 "options": {
-                    "Just one accessory": "Isolated fault, most likely a blown fuse or failed component dedicated to that accessory.",
+                    "Just one accessory": {
+                        "diagnosis": "Dedicated Circuit Check",
+                        "tests": [{
+                            "check": "Dedicated Fuse Check",
+                            "instruction": "Check that accessory's dedicated fuse. Is it blown?",
+                            "options": {
+                                "Yes, blown": "Blown fuse for that accessory. Replace the fuse (and investigate why if it blows again).",
+                                "No, fuse is fine": "Fuse is fine, so the accessory itself (or its switch/motor) has failed. Replace or repair that specific component."
+                            }
+                        }]
+                    },
                     "Several accessories at once": {
                         "question": "Check the main accessory/interior fuse(s). Any blown?",
                         "options": {
                             "Yes": "Blown shared accessory fuse, likely from a short in one of the connected circuits. Replace the fuse, then isolate which device is drawing excess current.",
-                            "No": "Body Control Module (BCM) fault or a bad chassis ground strap. Check chassis grounds first, then consider BCM diagnostics."
+                            "No": {
+                                "diagnosis": "Ground vs BCM Check",
+                                "tests": [{
+                                    "check": "Ground Strap Check",
+                                    "instruction": "Inspect and clean the chassis ground strap connections. After cleaning, do the accessories work normally again?",
+                                    "options": {
+                                        "Yes, resolved": "Corroded or loose chassis ground strap was the cause - resolved by cleaning.",
+                                        "No change": "Grounds are fine, so it's a Body Control Module (BCM) fault. Have the BCM tested/diagnosed."
+                                    }
+                                }]
+                            }
                         }
                     }
                 }
@@ -522,7 +897,17 @@ DIAGNOSTIC_TREE = {
                             "check": "Alternator Output Voltage",
                             "instruction": "Check alternator output voltage with the engine running (should read ~13.5-14.5V). Is it in range?",
                             "options": {
-                                "No, out of range": "The charging system isn't keeping up with electrical demand. Inspect the alternator and serpentine belt for slipping/wear.",
+                                "No, out of range": {
+                                    "diagnosis": "Belt vs Alternator Check",
+                                    "tests": [{
+                                        "check": "Belt Check",
+                                        "instruction": "Check the serpentine belt for proper tension and glazing/wear. Is the belt slipping or worn?",
+                                        "options": {
+                                            "Yes, slipping/worn": "Slipping or worn serpentine belt not turning the alternator fast enough. Replace/re-tension the belt.",
+                                            "No, belt is fine": "Belt is fine, so the alternator itself has failed. Replace the alternator."
+                                        }
+                                    }]
+                                },
                                 "Yes, in range": "Charging system checks out - recheck for a parasitic draw or a weak battery instead."
                             }
                         }]
