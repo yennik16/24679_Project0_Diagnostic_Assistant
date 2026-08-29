@@ -1,149 +1,73 @@
 # Automotive Diagnostic Assistant
 
-A self-guided car troubleshooting tool. It looks up OBD-II trouble codes,
-walks you through a test-driven decision tree from a plain-English symptom
-description, and (when available) shows the real live-sensor PID a scan
-tool would use to verify each test step, pulled from the community
-[OBDb](https://github.com/OBDb) project.
+As the title suggests, this is an automotive diagnostic assistant meant to assist
+with vehicle troubleshooting. It allows the user to look up OBD2 trouble codes, as
+well as professional Parameter ID (PID) signals which are pulled from the OBDb github page
+(https://github.com/OBDb) based on the specific vehicle make, model, and year the 
+user inputs. It also features a decision tree which can be used to pinpoint the cause
+of an issue, without a code. It allows the user to describe their problem in plain text,
+at which point it is able to match the corresponding node in the decision tree to begin
+asking additional questions. Several nodes feature simple tests, for which the corresponding
+PID is provided. Once a final diagnosis is reached, the user has the option to automatically 
+search google for a repair guide.
 
-## What it does
+## How to use it
+There are no required dependencies, just install automotive_diagnostic_tool.html and run it
+in a browser.
 
-- **Vehicle selection, in the app** - on load (or via "Change Vehicle"),
-  enter a make/model/year and the app fetches that vehicle's live-PID
-  data directly from OBDb using the browser's own `fetch()` - no need to
-  regenerate the file for a different vehicle. This requires the page to
-  be hosted over http/https (e.g. GitHub Pages); if opened as a local
-  file, browsers block that fetch, so the app says so and continues
-  without live PID data - trouble code lookup and the decision tree still
-  work fully offline either way.
-- **Trouble code lookup** - enter a code (e.g. `P0300`) and get its
-  description and likely causes from a local database.
-- **Symptom-driven diagnosis with confidence-ranked classification** -
-  describe a problem in your own words ("the engine hesitates and
-  stumbles when I accelerate") and the app classifies it against 16
-  known symptom categories using **TF-IDF vectorization and cosine
-  similarity** (see "How the symptom classifier works" below), showing
-  the top 2-3 candidates with confidence percentages rather than
-  silently guessing one. Picking a match routes you into a sequence of
-  concrete tests - some branches run 7-8 questions deep - and **every
-  path ends on one specific named cause and fix, never a list of
-  possibilities**. Where an earlier version of this tree would end with
-  "it's a vacuum leak or a failing injector, go check both," it now runs
-  an actual differentiating test (e.g. a vacuum-leak spray test) and
-  states which one it is. 107 distinct root causes are reachable this
-  way across engine starting issues, four performance-issue categories,
-  brakes, steering, and electrical faults.
-- **Live PID reference** - shows the actual OBD-II command and decoding
-  formula for the loaded vehicle's sensors, matched automatically against
-  test steps in the decision tree (e.g. a "Battery Voltage" test step
-  shows the exact PID a scan tool would query).
+## How the plain text description works
 
-## How the symptom classifier works
-
-This is the project's non-trivial computational piece, so it's worth
-spelling out. Naively checking whether the input string *contains* a
-fixed keyword ("does the text include 'overheat'?") is trivial rule
-matching and breaks the moment someone phrases things differently. This
-app instead does real text classification:
-
-1. Each of the 16 symptom categories has 5-6 hand-written example phrases
-   (its "training documents") - e.g. Overheating includes phrases like
-   "temperature gauge climbs into the red" and "steam coming from under
-   the hood".
-2. At startup, the app builds a **TF-IDF** (term frequency - inverse
-   document frequency) model over these documents: common words that
-   appear in most categories (like "car" or "when") are automatically
-   down-weighted, while distinctive words that concentrate in one
-   category are up-weighted - computed, not hand-tuned.
-3. The user's free-text description is run through the same
-   vectorization and compared against every category's vector using
-   **cosine similarity**.
-4. The categories are ranked by similarity and shown with a normalized
-   confidence percentage, so the user (not a hard-coded if/else chain)
-   makes the final call when it's ambiguous - e.g. "brake pedal feels
-   soft and mushy" correctly ranks *Spongy/Soft Brake Pedal* well above
-   *Brake Pedal Pulsates* or *Goes to the Floor*, despite none of those
-   category labels containing the words "soft" or "mushy" verbatim.
-
-This is implemented from scratch in vanilla JavaScript (no ML library)
-in the `SYMPTOM_CATEGORIES` / `buildClassifier` / `cosineSimilarity`
-functions in `index.html`.
+There are 16 symptom categories with written example phrases for each as to what descriptions
+of the symptom may look like. A term frequency - inverse document frequency model is built from 
+this to figure out which specific words can be used to identify certain categories (weighting words
+that concentrate in one category highly, and ones that appear everywhere lowly). The users text 
+description is then given the same treatment and compared to each category using cosine similarity. 
+These similarities can then be ranked allowing the program to select the top 3 most relevant points
+in the decision tree for the user to begin diagnosis at. If an adequate match can not be found, they 
+simply start at the top of the tree. The decision tree features questions and tests for the user to 
+work through until it works its way to a leaf, containing the final diagnosis.
 
 ## Known limitations
 
-- The symptom classifier's vocabulary is limited to its 16 categories'
-  example phrases; a symptom described in very unfamiliar terms may
-  score low across the board (it then falls back to manual category
-  browsing rather than forcing a bad guess).
-- PID-to-test matching (a separate, simpler feature from the symptom
-  classifier above) is word-overlap based, not semantic - it can produce
-  a loose match when two unrelated checks share a generic word (e.g.
-  "Coolant Level" vs. "Fuel Level" both contain "Level").
-- The decision tree's questions and the trouble-code database are still
-  hand-authored rules, not learned from data - the symptom *classifier*
-  that routes into that tree is the learned/computed part.
-
-## How it's organized
-
-```
-.
-├── index.html               <- the app itself. Open this in a browser.
-├── build_diagnostic_app.py  <- (re)generates index.html for a given vehicle
-├── obd_database.py          <- local trouble-code database
-└── README.md
-```
-
-`index.html` is a single self-contained file (HTML/CSS/JavaScript, no
-external libraries, no build step). All vehicle-specific data - the
-trouble code table and that vehicle's live PID signals - is embedded
-directly in the file at generation time, so it has no server and no
-runtime network dependency; it runs from a plain double-click.
-
-## Dependencies
-
-None to *run* the app - any modern browser (Chrome, Firefox, Edge, Safari)
-opens `index.html` directly.
-
-To *regenerate* `index.html` for a different vehicle, you need Python 3
-(standard library only - `json`, `re`, `difflib`, `urllib` - no `pip
-install` required) and an internet connection (to query the OBDb project
-for that vehicle's live PID data; if none is found, the generated app
-still works, it just shows "no live PID data available" for that vehicle).
-
-## How to run it
-
-**Just view/use the app:** download this repository (or just `index.html`)
-and open `index.html` directly in a browser. Note: some file previewers
-(Google Drive's preview pane, some in-browser "quick look" tools) don't
-execute JavaScript and will appear to load forever - make sure you're
-opening it in an actual browser window, not a preview pane.
-
-**Regenerate `index.html`** (only needed if you want to pre-bake a default
-vehicle for an offline demo - vehicle selection otherwise happens inside
-the app itself):
-```bash
-python3 build_diagnostic_app.py
-```
-Leave the make/model/year prompts blank to get an app that opens straight
-to its own vehicle-selection screen (this is what's included here). In
-Google Colab, running the same script also triggers a normal file
-download of the result.
+The symptom classifier has limited "training" so if the users description differs greatly from the 
+training sentences it defaults to the beginning of the tree. The PID to test matching also relies on
+word matching, so it can result in false matches if only one or a few words match. The core of the manual
+diagnostic tool is still a decision tree, so it is limited in its depth. It is broad and cannot pull specific
+information about a model of vehicle to provide more specific and accurate tests/predicted sources of problems.
 
 ## AI tool use
+I vibecoded this program as discussed in the class. I started on google colab hence the commits here starting 
+midway through code devolopment as I had never used github but decided to switch based on lecture/running into issues with the gui.
 
-Claude (Anthropic) was used throughout this project's development:
-- Debugging an `AttributeError` crash in an earlier ipywidgets-based
-  prototype, and redesigning the decision-tree traversal logic to fix it.
-- Researching the OBDb project's structure/licensing and writing the
-  integration that fetches and parses its live-PID signal data.
-- Diagnosing reliability issues specific to running ipywidgets in Google
-  Colab (unreliable dynamically-created widgets, sandboxed output iframes
-  blocking `window.open()`), which led to converting the tool from an
-  ipywidgets notebook UI into this standalone HTML/JS application.
-- Implementing the TF-IDF/cosine-similarity symptom classifier described
-  above, in response to feedback that keyword-substring matching was too
-  trivial a form of "intelligence" for the assignment's rubric.
-- Drafting this README.
+To start I just used the built in colab AI assistant prompting it with a modified version of my project 0 idea:
+make an automotive diagnostic assistant which could be used to predict the cause of car troubles. 
+This could help provide a list of things for the user to check themselves, or provide them with a better 
+baseline idea of the issue before bringing it to a mechanic. A user will interact with the system by describing 
+the issue through a gui and then answering a series of (dynamic) questions, allowing the system to zero in on 
+a likely diagnosis. you may need to use a dataset of automotive issues and their causes, a decision tree, a 
+model to interpret user answers, and Python to code it.
 
-All prompts, iterations, and design decisions were reviewed and directed
-by the author throughout.
+I then reviewed its output and prompted: 
+make a much more in depth decision tree. is there an automotive code database that can be incorporated?
+
+I was not satisfied with the results of this so I found a github database with a list of obd codes myself and 
+prompted it to implement https://github.com/obdb
+
+I then prompted it about 10 times with the output of various different tests asking it to continue with a decision 
+tree when I felt it stopped with too broad a solution, asked it to implement a feature that would search for online
+repair guides when the final issue was found, and fixing various bugs and issues. I also prompted it to start by asking
+for a trouble code. I then prompted it to allow for a text description of symptoms rather than relying entirely on generic
+buttons. I then prompted it several more times to fix errors, try and improve the depth of diagnosis, and get it to properly 
+use the github database I had found. 
+
+I hit a roadblock asking it to create a popout gui rather than one at the bottom of the 
+code where it would just compile indefinitely. At this point I switched to claude to further refine it.
+I prompted claude to fix the popout gui with notes on what I wanted the flow/appearance to be like. The popout still
+would not work however and there was a consistent issue with buttons needing to be clicked multiple times before
+text boxes or the next thing would appear. It identified it as a colab issue which is when I switched to github, having it 
+generate the initial commit. The rest of the commits also used Claude, limited by its usage limits. I asked it to add the
+confidence ranked symptom classification to improve intelligence and prompted it further to improve the decision tree so that
+it continued until a single problem was identified, instead of terminating with a short list of possible issues. I also fed it some online decision trees to help guide it. Comments past the fourth commit were written by me, until I realized that the two python scripts
+and index.html could be consolidated. At this point, I asked Claude to do so, giving it my commented files to which it added some 
+additional comments. The readme was written by me, but seeing as Claude automatically generated one when it recommened the switch to 
+github I loosely referenced that.
