@@ -1,41 +1,4 @@
 <!--
-USE OF AI:
-I vibecoded this program as discussed in the class. I started on google colab hence the commits here being 
-fairly limited as I had never used github but decided to switch based on lecture/running into issues with the gui.
-
-To start I just used the built in colab AI assistant prompting it with a modified version of my project 0 idea:
-make an automotive diagnostic assistant which could be used to predict the cause of car troubles. 
-This could help provide a list of things for the user to check themselves, or provide them with a better 
-baseline idea of the issue before bringing it to a mechanic. A user will interact with the system by describing 
-the issue through a gui and then answering a series of (dynamic) questions, allowing the system to zero in on 
-a likely diagnosis. you may need to use a dataset of automotive issues and their causes, a decision tree, a 
-model to interpret user answers, and Python to code it.
-
-I then reviewed its output and prompted: 
-make a much more in depth decision tree. is there an automotive code database that can be incorporated?
-
-I was not satisfied with the results of this so I found a github database with a list of obd codes myself and 
-prompted it to implement https://github.com/obdb
-
-I then prompted it about 10 times with the output of various different tests asking it to continue with a decision 
-tree when I felt it stopped with too broad a solution, asked it to implement a feature that would search for online
-repair guides when the final issue was found, and fixing various bugs and issues. I also prompted it to start by asking
-for a trouble code. I then prompted it to allow for a text description of symptoms rather than relying entirely on generic
-buttons. I then prompted it several more times to fix errors, try and improve the depth of diagnosis, and get it to properly 
-use the github database I had found. 
-
-I hit a roadblock asking it to create a popout gui rather than one at the bottom of the 
-code where it would just compile indefinitely. At this point I switched to claude to further refine it.
-I prompted claude to fix the popout gui with notes on what I wanted the flow/appearance to be like. The popout still
-would not work however and there was a consistent issue with buttons needing to be clicked multiple times before
-text boxes or the next thing would appear. It identified it as a colab issue which is when I switched to github, having it 
-generate the initial commit. The rest of the commits also used Claude, limited by its usage limits. I asked it to add the
-confidence ranked symptom classification to improve intelligence and prompted it further to improve the decision tree so that
-it continued until a single problem was identified, instead of terminating with a short list of possible issues. Comments, 
-rewriting of the readme, etc. past the fourth commit were done manually by me, but I asked Claude to thoroughly explain everything
-first to ensure I understood anything I was iffy on.
-
-
 Overview:
 This file used to be split into build_diagnostic_app.py (which referenced the OBDb github for live PID data, held the
 diagnostic tree, and templated an HTML file) and obd_database.py (the trouble code database). It's now a single
